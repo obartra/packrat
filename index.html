@@ -1,0 +1,179 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <meta name="theme-color" content="#F7F4EF">
+  <title>Packrat</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>%F0%9F%A7%B3</text></svg>">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=DM+Serif+Display:ital@0;1&display=swap" rel="stylesheet">
+</head>
+<body>
+
+  <!-- App Header (hidden on login) -->
+  <header id="app-header" class="hidden">
+    <button id="btn-back" class="btn-icon hidden" aria-label="Back">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M19 12H5M12 5l-7 7 7 7"/></svg>
+    </button>
+    <span id="header-title" class="header-title">Packrat</span>
+    <button id="btn-header-action" class="btn-icon hidden" aria-label="Action"></button>
+  </header>
+
+  <!-- ====== VIEWS ====== -->
+
+  <!-- Login -->
+  <div id="view-login" class="view active">
+    <div class="login-wrap">
+      <div class="login-brand">
+        <h1 class="login-logo">Packrat</h1>
+        <p class="login-sub">Know what you own. Pack what you need.</p>
+      </div>
+      <form class="login-card" id="login-form" method="post" action="#">
+        <div class="tab-row">
+          <button type="button" class="tab-btn active" id="tab-signin">Sign In</button>
+          <button type="button" class="tab-btn" id="tab-register">Register</button>
+        </div>
+        <input id="login-email" name="email" type="email" placeholder="Email" autocomplete="username" autocapitalize="none" spellcheck="false" required>
+        <input id="login-password" name="password" type="password" placeholder="Password" autocomplete="current-password" required>
+        <div id="login-register-extra" class="hidden">
+          <input id="login-password2" name="password-confirm" type="password" placeholder="Confirm password" autocomplete="new-password">
+        </div>
+        <button type="submit" id="btn-login-submit" class="btn-primary">Sign In</button>
+        <p id="login-error" class="error-msg"></p>
+      </form>
+    </div>
+  </div>
+
+  <!-- Containers List -->
+  <div id="view-containers" class="view view-auth">
+    <div class="view-scroll">
+      <div id="containers-grid" class="card-grid"></div>
+      <div id="containers-empty" class="empty-state hidden">
+        <div class="empty-icon">📦</div>
+        <p>No containers yet</p>
+        <small>Tap + to add your first suitcase, bag, or box</small>
+      </div>
+    </div>
+    <button class="fab" id="btn-add-container" aria-label="Add container">+</button>
+  </div>
+
+  <!-- Container Detail -->
+  <div id="view-container" class="view view-auth">
+    <div class="view-scroll" id="container-detail-content"></div>
+  </div>
+
+  <!-- Items List -->
+  <div id="view-items" class="view view-auth">
+    <div class="items-toolbar">
+      <div class="search-row">
+        <input id="items-search" type="search" placeholder="Search items…" autocomplete="off" inputmode="search">
+        <select id="items-filter-container" class="filter-select">
+          <option value="">All containers</option>
+        </select>
+      </div>
+      <div id="items-category-chips" class="chip-row"></div>
+    </div>
+    <div class="view-scroll items-scroll">
+      <div id="items-list-content"></div>
+      <div id="items-empty" class="empty-state hidden">
+        <div class="empty-icon">📋</div>
+        <p>No items yet</p>
+        <small>Tap + to add, or use Import CSV in Settings</small>
+      </div>
+    </div>
+    <button class="fab" id="btn-add-item" aria-label="Add item">+</button>
+  </div>
+
+  <!-- Item Detail -->
+  <div id="view-item" class="view view-auth">
+    <div class="view-scroll" id="item-detail-content"></div>
+  </div>
+
+  <!-- Lists -->
+  <div id="view-lists" class="view view-auth">
+    <div class="view-scroll">
+      <div id="lists-stack" class="stack"></div>
+      <div id="lists-empty" class="empty-state hidden">
+        <div class="empty-icon">📝</div>
+        <p>No packing lists yet</p>
+        <small>Build reusable lists for diving trips, business travel, and more</small>
+      </div>
+    </div>
+    <button class="fab" id="btn-add-list" aria-label="Add list">+</button>
+  </div>
+
+  <!-- List Detail -->
+  <div id="view-list" class="view view-auth">
+    <div class="view-scroll" id="list-detail-content"></div>
+  </div>
+
+  <!-- Trip Planner -->
+  <div id="view-trip" class="view view-auth">
+    <div class="view-scroll" id="trip-content"></div>
+  </div>
+
+  <!-- Settings -->
+  <div id="view-settings" class="view view-auth">
+    <div class="view-scroll" id="settings-content"></div>
+  </div>
+
+  <!-- Bottom Navigation -->
+  <nav id="bottom-nav" class="hidden">
+    <button class="nav-tab" data-tab="containers">
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="7" width="20" height="14" rx="2"/><path d="M16 7V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v2"/></svg>
+      <span>Containers</span>
+    </button>
+    <button class="nav-tab" data-tab="items">
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><circle cx="3" cy="6" r="1" fill="currentColor"/><circle cx="3" cy="12" r="1" fill="currentColor"/><circle cx="3" cy="18" r="1" fill="currentColor"/></svg>
+      <span>Items</span>
+    </button>
+    <button class="nav-tab" data-tab="lists">
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
+      <span>Lists</span>
+    </button>
+    <button class="nav-tab" data-tab="trip">
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 17l4-8 4 4 4-6 4 10"/></svg>
+      <span>Trip</span>
+    </button>
+  </nav>
+
+  <!-- ====== SHEET (slide-up form panel) ====== -->
+  <div id="sheet-overlay" class="sheet-overlay hidden"></div>
+  <div id="sheet" class="sheet hidden">
+    <div class="sheet-handle"></div>
+    <div class="sheet-header">
+      <h2 id="sheet-title"></h2>
+      <button id="btn-sheet-close" class="btn-icon" aria-label="Close">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+      </button>
+    </div>
+    <div id="sheet-body" class="sheet-body"></div>
+    <div class="sheet-footer">
+      <button id="btn-sheet-save" class="btn-primary full-width">Save</button>
+    </div>
+  </div>
+
+  <!-- ====== CONFIRM DIALOG ====== -->
+  <div id="confirm-overlay" class="sheet-overlay hidden"></div>
+  <div id="confirm-box" class="confirm-box hidden">
+    <p id="confirm-message"></p>
+    <div class="confirm-actions">
+      <button id="btn-confirm-cancel" class="btn-ghost">Cancel</button>
+      <button id="btn-confirm-ok" class="btn-danger">Delete</button>
+    </div>
+  </div>
+
+  <!-- ====== TOAST ====== -->
+  <div id="toast-container" aria-live="polite"></div>
+
+  <!-- ====== HIDDEN INPUTS ====== -->
+  <input type="file" id="file-camera" accept="image/*" capture="environment" style="display:none" aria-hidden="true">
+  <input type="file" id="file-library" accept="image/*" style="display:none" aria-hidden="true">
+  <input type="file" id="file-csv" accept=".csv,text/csv" style="display:none" aria-hidden="true">
+
+  <script type="module" src="/src/main.ts"></script>
+</body>
+</html>
