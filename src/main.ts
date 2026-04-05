@@ -177,20 +177,17 @@ const initialPath = window.location.pathname;
 onAuthStateChanged(auth, async (user: User | null) => {
   if (user) {
     store.user = user;
-    $('app-header').classList.remove('hidden');
-    $('bottom-nav').classList.remove('hidden');
     await loadAllData();
     setupListeners();
     // Navigate to the route the user arrived at (deep-link support),
-    // defaulting to containers for unknown paths.
+    // defaulting to containers for unknown paths. showView handles
+    // chrome visibility and the /login redirect for authed users.
     const match = urlToRoute(initialPath);
     showView(match.name, match.id ? { id: match.id } : {}, { replace: true });
   } else {
     teardownListeners();
     clearStore();
     showView('login');
-    $('app-header').classList.add('hidden');
-    $('bottom-nav').classList.add('hidden');
   }
 });
 
@@ -208,6 +205,14 @@ let currentView: ViewName = 'login';
 let viewStack: ViewName[] = [];
 
 function showView(name: ViewName, params: ViewParams = {}, opts: ShowViewOpts = {}): void {
+  // Authenticated users can't navigate to /login — redirect to containers
+  // so the URL and UI stay consistent (chrome visible, data shown).
+  if (name === 'login' && store.user) {
+    name = 'containers';
+    params = {};
+    opts = { ...opts, fromHistory: false, replace: true };
+  }
+
   document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
   const el = $maybe(`view-${name}`);
   if (el) el.classList.add('active');
@@ -222,6 +227,11 @@ function showView(name: ViewName, params: ViewParams = {}, opts: ShowViewOpts = 
       window.history.pushState({ name, params }, '', url);
     }
   }
+
+  // App chrome is visible on every view except login
+  const isLogin = name === 'login';
+  $('app-header').classList.toggle('hidden', isLogin);
+  $('bottom-nav').classList.toggle('hidden', isLogin);
 
   // Update back button + stack
   const backBtn = $('btn-back');
@@ -811,10 +821,16 @@ function itemFormBody(it: Partial<Item> = {}): string {
     )
     .join('');
 
-  const valOpts = (g: string | undefined): string =>
-    (CATEGORIES[(g || 'misc') as keyof CategoriesMap] || CATEGORIES.misc)
+  // When the stored group is missing or unknown, the browser falls back to the
+  // first <option> in the group dropdown — align the category values with that
+  // same default so the two selects never disagree on first render.
+  const firstGroupKey = Object.keys(CATEGORIES)[0] as keyof CategoriesMap;
+  const valOpts = (g: string | undefined): string => {
+    const key = (g && g in CATEGORIES ? g : firstGroupKey) as keyof CategoriesMap;
+    return CATEGORIES[key]
       .map(v => `<option value="${v}" ${it.category?.value === v ? 'selected' : ''}>${v}</option>`)
       .join('');
+  };
 
   const contOpts =
     '<option value="">Unassigned</option>' +

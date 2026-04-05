@@ -70,6 +70,18 @@ a {
 .hidden {
   display: none !important;
 }
+/* File inputs that need to stay in the layout tree (iOS capture=... quirk)
+   but be invisible and non-interactive. */
+.visually-hidden-input {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+  pointer-events: none;
+  overflow: hidden;
+}
 
 /* === TYPOGRAPHY === */
 .serif {
