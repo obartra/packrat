@@ -169,10 +169,13 @@
   <!-- ====== TOAST ====== -->
   <div id="toast-container" aria-live="polite"></div>
 
-  <!-- ====== HIDDEN INPUTS ====== -->
-  <input type="file" id="file-camera" accept="image/*" capture="environment" style="display:none" aria-hidden="true">
-  <input type="file" id="file-library" accept="image/*" style="display:none" aria-hidden="true">
-  <input type="file" id="file-csv" accept=".csv,text/csv" style="display:none" aria-hidden="true">
+  <!-- ====== HIDDEN INPUTS ======
+       Visually hidden but kept in the layout tree — iOS Safari ignores
+       `capture="environment"` on `display:none` inputs triggered via JS.
+  -->
+  <input type="file" id="file-camera" accept="image/*" capture="environment" class="visually-hidden-input" aria-hidden="true">
+  <input type="file" id="file-library" accept="image/*" class="visually-hidden-input" aria-hidden="true">
+  <input type="file" id="file-csv" accept=".csv,text/csv" class="visually-hidden-input" aria-hidden="true">
 
   <script type="module" src="/src/main.ts"></script>
 </body>
