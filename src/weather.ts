@@ -14,6 +14,8 @@ export interface DailyClimate {
   temperature_2m_max?: number[];
   temperature_2m_min?: number[];
   precipitation_sum?: number[];
+  cloud_cover_mean?: number[];
+  relative_humidity_2m_mean?: number[];
 }
 
 export interface ClimateAggregate {
@@ -21,6 +23,8 @@ export interface ClimateAggregate {
   avgLow: number | null;
   totalPrecip: number | null;
   rainyDays: number | null;
+  cloudCoverPct: number | null;
+  humidityPct: number | null;
 }
 
 /** Mean of an array rounded to nearest integer; null for empty arrays. */
@@ -50,6 +54,8 @@ export function aggregateClimate(daily: DailyClimate | undefined): ClimateAggreg
     avgLow: meanRounded(daily?.temperature_2m_min),
     totalPrecip: sumRounded(daily?.precipitation_sum),
     rainyDays: countRainyDays(daily?.precipitation_sum),
+    cloudCoverPct: meanRounded(daily?.cloud_cover_mean),
+    humidityPct: meanRounded(daily?.relative_humidity_2m_mean),
   };
 }
 
@@ -75,15 +81,20 @@ export async function fetchTripWeather(
   monthIdx: number,
 ): Promise<TripWeatherData> {
   const { startDate, endDate } = monthDateRange(monthIdx);
-  const url = `https://archive-api.open-meteo.com/v1/archive?latitude=${loc.latitude}&longitude=${loc.longitude}&start_date=${startDate}&end_date=${endDate}&daily=temperature_2m_max,temperature_2m_min,precipitation_sum&timezone=auto`;
+  const url = `https://archive-api.open-meteo.com/v1/archive?latitude=${loc.latitude}&longitude=${loc.longitude}&start_date=${startDate}&end_date=${endDate}&daily=temperature_2m_max,temperature_2m_min,precipitation_sum,cloud_cover_mean,relative_humidity_2m_mean&timezone=auto`;
   const res = await fetch(url);
   const data = await res.json();
   const agg = aggregateClimate(data?.daily);
+  // Count days in the month for totalDays.
+  const totalDays =
+    (data?.daily?.temperature_2m_max as unknown[] | undefined)?.length ??
+    new Date(new Date().getFullYear() - 1, monthIdx + 1, 0).getDate();
   return {
     place: loc.name,
     country: loc.country,
     monthName: MONTHS[monthIdx] ?? '',
     ...agg,
+    totalDays,
   };
 }
 
@@ -111,7 +122,7 @@ export async function fetchYearClimate(
 ): Promise<MonthlyClimate[]> {
   const start = `${referenceYear}-01-01`;
   const end = `${referenceYear}-12-31`;
-  const url = `https://archive-api.open-meteo.com/v1/archive?latitude=${loc.latitude}&longitude=${loc.longitude}&start_date=${start}&end_date=${end}&daily=temperature_2m_max,temperature_2m_min,precipitation_sum&timezone=auto`;
+  const url = `https://archive-api.open-meteo.com/v1/archive?latitude=${loc.latitude}&longitude=${loc.longitude}&start_date=${start}&end_date=${end}&daily=temperature_2m_max,temperature_2m_min,precipitation_sum,cloud_cover_mean,relative_humidity_2m_mean&timezone=auto`;
   const res = await fetch(url, signal ? { signal } : undefined);
   const data = await res.json();
   const daily = data?.daily as
@@ -120,6 +131,8 @@ export async function fetchYearClimate(
         temperature_2m_max?: (number | null)[];
         temperature_2m_min?: (number | null)[];
         precipitation_sum?: (number | null)[];
+        cloud_cover_mean?: (number | null)[];
+        relative_humidity_2m_mean?: (number | null)[];
       }
     | undefined;
 
@@ -127,14 +140,20 @@ export async function fetchYearClimate(
   const bucketsMax: number[][] = Array.from({ length: 12 }, () => []);
   const bucketsMin: number[][] = Array.from({ length: 12 }, () => []);
   const bucketsPrecip: number[][] = Array.from({ length: 12 }, () => []);
+  const bucketsCloud: number[][] = Array.from({ length: 12 }, () => []);
+  const bucketsHumidity: number[][] = Array.from({ length: 12 }, () => []);
   (daily?.time ?? []).forEach((dateStr, i) => {
     const mo = new Date(dateStr).getMonth();
     const max = daily?.temperature_2m_max?.[i];
     const min = daily?.temperature_2m_min?.[i];
     const precip = daily?.precipitation_sum?.[i];
+    const cloud = daily?.cloud_cover_mean?.[i];
+    const hum = daily?.relative_humidity_2m_mean?.[i];
     if (max != null) bucketsMax[mo]!.push(max);
     if (min != null) bucketsMin[mo]!.push(min);
     if (precip != null) bucketsPrecip[mo]!.push(precip);
+    if (cloud != null) bucketsCloud[mo]!.push(cloud);
+    if (hum != null) bucketsHumidity[mo]!.push(hum);
   });
 
   const mean = (arr: number[]): number | null =>
@@ -151,6 +170,8 @@ export async function fetchYearClimate(
     avgLow: mean(bucketsMin[i]!),
     totalPrecip: sum(bucketsPrecip[i]!),
     rainyDays: rainy(bucketsPrecip[i]!),
+    cloudCoverPct: mean(bucketsCloud[i]!),
+    humidityPct: mean(bucketsHumidity[i]!),
   }));
 }
 
@@ -162,15 +183,27 @@ export async function fetchYearClimate(
 export function aggregateMonths(
   climates: MonthlyClimate[],
   monthIndices: number[],
+  totalDays = 0,
 ): Omit<TripWeatherData, 'place' | 'country'> {
   const selected = climates.filter(c => monthIndices.includes(c.monthIdx));
   if (!selected.length) {
-    return { monthName: '', avgHigh: null, avgLow: null, totalPrecip: null, rainyDays: null };
+    return {
+      monthName: '',
+      avgHigh: null,
+      avgLow: null,
+      totalPrecip: null,
+      rainyDays: null,
+      cloudCoverPct: null,
+      humidityPct: null,
+      totalDays,
+    };
   }
   const highs = selected.map(c => c.avgHigh).filter((x): x is number => x != null);
   const lows = selected.map(c => c.avgLow).filter((x): x is number => x != null);
   const precips = selected.map(c => c.totalPrecip).filter((x): x is number => x != null);
   const rainies = selected.map(c => c.rainyDays).filter((x): x is number => x != null);
+  const clouds = selected.map(c => c.cloudCoverPct).filter((x): x is number => x != null);
+  const hums = selected.map(c => c.humidityPct).filter((x): x is number => x != null);
   const mean = (a: number[]): number | null =>
     a.length ? Math.round(a.reduce((x, y) => x + y, 0) / a.length) : null;
   const sum = (a: number[]): number | null => (a.length ? a.reduce((x, y) => x + y, 0) : null);
@@ -191,5 +224,8 @@ export function aggregateMonths(
     avgLow: mean(lows),
     totalPrecip: sum(precips),
     rainyDays: sum(rainies),
+    cloudCoverPct: mean(clouds),
+    humidityPct: mean(hums),
+    totalDays,
   };
 }

@@ -387,6 +387,231 @@
   margin-top: 16px;
 }
 
+/* === Activity pills (Settings) === */
+.activities-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  width: 100%;
+}
+.activity-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 4px 4px 10px;
+  background: var(--accent-light);
+  color: var(--accent);
+  border-radius: 14px;
+  font-size: 13px;
+  font-weight: 500;
+}
+.activity-pill-x {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--accent);
+  font-size: 11px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background var(--transition);
+}
+.activity-pill-x:hover {
+  background: rgba(61, 122, 114, 0.15);
+}
+
+/* === TRIPS INDEX — status chips === */
+.trip-status {
+  display: inline-block;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  padding: 2px 8px;
+  border-radius: 10px;
+}
+.trip-status--ok {
+  background: var(--accent-light);
+  color: var(--accent);
+}
+.trip-status--warn {
+  background: #fff3cd;
+  color: #856404;
+}
+.trip-status--none {
+  background: var(--border-light);
+  color: var(--text-tertiary);
+}
+
+/* === WIZARD (create / edit trip) === */
+.wizard-split {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding: 16px;
+  height: 100%;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+}
+.wizard-left,
+.wizard-right {
+  background: var(--surface);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-card);
+  padding: 20px;
+}
+.wizard-right-label {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-tertiary);
+  margin-bottom: 10px;
+}
+@media (min-width: 768px) {
+  .wizard-split {
+    flex-direction: row;
+    align-items: flex-start;
+    overflow: hidden;
+    height: 100%;
+  }
+  .wizard-left {
+    flex: 0 0 42%;
+    max-height: 100%;
+    overflow-y: auto;
+  }
+  .wizard-right {
+    flex: 1;
+    max-height: 100%;
+    overflow-y: auto;
+  }
+}
+
+.wizard-progress {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 20px;
+  padding-bottom: 16px;
+  border-bottom: 1px solid var(--border-light);
+}
+.wizard-dot {
+  flex: 1;
+  text-align: center;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  color: var(--text-tertiary);
+  padding: 6px 4px;
+  border-radius: var(--radius-sm);
+  background: var(--border-light);
+  border: 0;
+  cursor: pointer;
+  font-family: inherit;
+  transition:
+    background 0.1s ease,
+    color 0.1s ease;
+}
+.wizard-dot:hover:not(.active) {
+  background: var(--border);
+}
+.wizard-dot.active {
+  background: var(--accent);
+  color: #fff;
+  cursor: default;
+}
+.wizard-dot.done {
+  background: var(--accent-light);
+  color: var(--accent);
+}
+
+.wizard-heading {
+  font-family: 'DM Serif Display', serif;
+  font-size: 22px;
+  margin-bottom: 16px;
+  color: var(--text);
+}
+
+.wizard-nav {
+  display: flex;
+  gap: 10px;
+  margin-top: 20px;
+  padding-top: 16px;
+  border-top: 1px solid var(--border-light);
+}
+.wizard-nav .btn-ghost {
+  flex: 0 0 auto;
+  min-width: 96px;
+}
+.wizard-nav .btn-primary {
+  flex: 1;
+}
+
+.wizard-preview-empty {
+  color: var(--text-tertiary);
+  font-size: 14px;
+  text-align: center;
+  padding: 32px 8px;
+}
+.wizard-preview-error {
+  color: var(--danger);
+}
+
+.climate-summary--muted {
+  background: var(--border-light);
+  color: var(--text-secondary);
+}
+.climate-summary--muted .climate-place {
+  color: var(--text);
+}
+
+.wizard-map {
+  width: 100%;
+  aspect-ratio: 4/3;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: var(--border-light);
+}
+.wizard-location {
+  margin-top: 12px;
+}
+.wizard-location-name {
+  font-weight: 600;
+  font-size: 15px;
+}
+.wizard-location-coord {
+  font-size: 12px;
+  color: var(--text-secondary);
+  font-family: ui-monospace, monospace;
+  margin-top: 2px;
+}
+
+.wizard-summary {
+  background: var(--bg);
+  border-radius: var(--radius-sm);
+  padding: 14px 16px;
+}
+.wizard-summary-title {
+  font-family: 'DM Serif Display', serif;
+  font-size: 18px;
+  margin-bottom: 8px;
+}
+.wizard-summary-row {
+  font-size: 13px;
+  color: var(--text-secondary);
+  margin-top: 4px;
+}
+
+.wizard-api-hint {
+  margin-top: 12px;
+  padding: 10px 12px;
+  background: var(--accent-faint);
+  border: 1px solid var(--accent-light);
+  border-radius: var(--radius-sm);
+  font-size: 12px;
+  color: var(--accent);
+}
+
 .candidates-panel {
   background: var(--surface);
   border-radius: var(--radius);
@@ -632,6 +857,103 @@
   font-size: 12px;
   font-weight: 600;
   cursor: pointer;
+}
+
+/* === V2 trip additions === */
+.form-hint {
+  font-size: 12px;
+  color: var(--text-tertiary);
+  margin-top: 6px;
+  font-style: italic;
+}
+.date-select,
+.date-input {
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  font-size: 14px;
+  font-family: inherit;
+  color: var(--text);
+  background: var(--card);
+  min-height: 40px;
+}
+.date-input {
+  flex: 0 0 auto;
+}
+.date-select {
+  flex: 1;
+}
+.climate-stats--sub {
+  margin-top: 4px;
+  font-size: 12px;
+  color: var(--text-secondary);
+  opacity: 0.85;
+}
+.climate-stats--sub span {
+  font-weight: 500;
+}
+
+/* Trip index card: map thumb + weather chip */
+.trip-card {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+}
+.trip-card-map {
+  width: 64px;
+  height: 64px;
+  border-radius: var(--radius-sm);
+  object-fit: cover;
+  flex: 0 0 auto;
+  background: var(--border-light);
+}
+.trip-card-map--empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 20px;
+  color: var(--text-tertiary);
+}
+.trip-card-weather {
+  font-size: 12px;
+  color: var(--text-secondary);
+  margin-top: 4px;
+}
+.trip-card-weather strong {
+  color: var(--text);
+}
+
+/* Edit form sections */
+.trip-edit-form .edit-section {
+  padding-bottom: 16px;
+  margin-bottom: 16px;
+  border-bottom: 1px solid var(--border-light);
+}
+.trip-edit-form .edit-section:last-of-type {
+  border-bottom: 0;
+}
+.trip-edit-form .edit-heading {
+  font-family: 'DM Serif Display', serif;
+  font-size: 18px;
+  margin: 0 0 12px;
+  color: var(--text);
+}
+.trip-edit-form .edit-footer {
+  position: sticky;
+  bottom: 0;
+  background: var(--bg);
+  padding: 12px 0;
+  margin-top: 16px;
+  border-top: 1px solid var(--border-light);
+  display: flex;
+  gap: 10px;
+}
+.trip-edit-form .edit-footer .btn-ghost {
+  flex: 0 0 auto;
+  min-width: 96px;
+}
+.trip-edit-form .edit-footer .btn-primary {
+  flex: 1;
 }
 
 /* === RESPONSIVE === */

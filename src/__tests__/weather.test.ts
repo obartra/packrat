@@ -28,7 +28,21 @@ describe('aggregateClimate', () => {
       avgLow: null,
       totalPrecip: null,
       rainyDays: null,
+      cloudCoverPct: null,
+      humidityPct: null,
     });
+  });
+
+  it('includes cloud cover + humidity when present', () => {
+    const agg = aggregateClimate({
+      temperature_2m_max: [25],
+      temperature_2m_min: [15],
+      precipitation_sum: [0],
+      cloud_cover_mean: [40, 50, 60],
+      relative_humidity_2m_mean: [65, 70, 75],
+    });
+    expect(agg.cloudCoverPct).toBe(50);
+    expect(agg.humidityPct).toBe(70);
   });
 
   it('returns null for missing fields', () => {
@@ -51,6 +65,8 @@ describe('aggregateClimate', () => {
       avgLow: null,
       totalPrecip: null,
       rainyDays: null,
+      cloudCoverPct: null,
+      humidityPct: null,
     });
   });
 
@@ -195,7 +211,9 @@ describe('fetchTripWeather', () => {
     expect(url).toContain('archive-api.open-meteo.com');
     expect(url).toContain('latitude=20.5');
     expect(url).toContain('longitude=-86.95');
-    expect(url).toContain('daily=temperature_2m_max,temperature_2m_min,precipitation_sum');
+    expect(url).toContain(
+      'daily=temperature_2m_max,temperature_2m_min,precipitation_sum,cloud_cover_mean,relative_humidity_2m_mean',
+    );
     expect(url).toContain('-05-01'); // May 1
     expect(url).toContain('-05-31'); // May 31
   });
@@ -256,6 +274,8 @@ describe('aggregateMonths', () => {
     avgLow: 0 + i,
     totalPrecip: 20,
     rainyDays: 3,
+    cloudCoverPct: 50,
+    humidityPct: 60,
   }));
 
   it('returns null fields when no months are selected', () => {
@@ -266,7 +286,14 @@ describe('aggregateMonths', () => {
       avgLow: null,
       totalPrecip: null,
       rainyDays: null,
+      cloudCoverPct: null,
+      humidityPct: null,
+      totalDays: 0,
     });
+  });
+
+  it('passes through totalDays when provided', () => {
+    expect(aggregateMonths(year, [4], 14).totalDays).toBe(14);
   });
 
   it('averages temperatures and sums precip/rainy days across selected months', () => {
@@ -311,8 +338,19 @@ describe('aggregateMonths', () => {
         avgLow: null,
         totalPrecip: null,
         rainyDays: null,
+        cloudCoverPct: null,
+        humidityPct: null,
       },
-      { monthIdx: 1, monthName: 'February', avgHigh: 10, avgLow: 0, totalPrecip: 5, rainyDays: 1 },
+      {
+        monthIdx: 1,
+        monthName: 'February',
+        avgHigh: 10,
+        avgLow: 0,
+        totalPrecip: 5,
+        rainyDays: 1,
+        cloudCoverPct: 40,
+        humidityPct: 55,
+      },
     ];
     const agg = aggregateMonths(sparse, [0, 1]);
     expect(agg.avgHigh).toBe(10);

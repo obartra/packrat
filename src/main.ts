@@ -31,9 +31,9 @@ import type {
   ListEntry,
   Category,
   CategoriesMap,
-  TripAIResult,
   PackingItem,
   MonthlyClimate,
+  Trip,
 } from './types';
 import { auth, db } from './firebase';
 import { $, $maybe, esc } from './utils';
@@ -49,6 +49,11 @@ import {
   setupListeners,
   teardownListeners,
   clearStore,
+  createTrip,
+  updateTrip,
+  renameTrip,
+  deleteTrip,
+  saveUserActivities,
 } from './store';
 import {
   pendingPhoto,
@@ -82,6 +87,27 @@ import {
   type ViewName,
   type ViewParams,
 } from './router';
+import {
+  tripSlug,
+  tripDisplayName,
+  formatMonthsLabel,
+  timestampMillis,
+  isAIOutdated,
+  staleItemIds,
+  weatherEmoji,
+  staticMapUrl,
+  compareTripsDesc,
+  validateStep,
+  canJumpToStep,
+  snapshotDraft as makeSnapshot,
+  spannedMonths,
+  durationToDays,
+  formatDuration,
+  formatTemp,
+  formatRainyDays,
+  mapTileUrl,
+  type TripDraftSnapshot,
+} from './trips';
 import { geocode, fetchYearClimate, aggregateMonths, type GeoLocation } from './weather';
 import { callAI, SYSTEM_PROMPT, buildUserMessage, inventoryFromItems, parseAIResponse } from './ai';
 
@@ -93,7 +119,6 @@ type ItemsGrouping = 'category' | 'container';
 const ITEMS_GROUPING_KEY = 'packrat_items_grouping';
 let itemsGrouping: ItemsGrouping =
   localStorage.getItem(ITEMS_GROUPING_KEY) === 'container' ? 'container' : 'category';
-const tripActivities = new Set<string>();
 
 // ============================================================
 //  UTILITY
@@ -110,6 +135,15 @@ function getApiKey(): string {
 }
 function setApiKey(k: string): void {
   localStorage.setItem('packrat_anthropic_key', k);
+}
+
+type TempUnit = 'celsius' | 'fahrenheit';
+const TEMP_UNIT_KEY = 'packrat_units';
+function getTempUnit(): TempUnit {
+  return localStorage.getItem(TEMP_UNIT_KEY) === 'fahrenheit' ? 'fahrenheit' : 'celsius';
+}
+function setTempUnit(u: TempUnit): void {
+  localStorage.setItem(TEMP_UNIT_KEY, u);
 }
 
 // ============================================================
@@ -186,7 +220,8 @@ onAuthStateChanged(auth, async (user: User | null) => {
   } else {
     teardownListeners();
     clearStore();
-    showView('login');
+    setBeforeLeave(null); // clear any wizard guard so logout can always proceed
+    showView('login', {}, { replace: true });
   }
 });
 
@@ -203,7 +238,26 @@ interface ShowViewOpts {
 let currentView: ViewName = 'login';
 let viewStack: ViewName[] = [];
 
+/**
+ * Hook that can block navigation away from the current view.
+ * Returns true to allow the transition, false to cancel. Currently used by
+ * the trip wizard in edit mode to confirm discarding unsaved changes.
+ */
+let beforeLeaveHook: (() => boolean) | null = null;
+
+export function setBeforeLeave(hook: (() => boolean) | null): void {
+  beforeLeaveHook = hook;
+}
+
 function showView(name: ViewName, params: ViewParams = {}, opts: ShowViewOpts = {}): void {
+  // Navigation guard — give the current view a chance to cancel (e.g. confirm
+  // unsaved changes). `fromHistory` + `replace` skip the hook to avoid loops.
+  if (beforeLeaveHook && !opts.fromHistory && !opts.replace && currentView !== name) {
+    const canLeave = beforeLeaveHook();
+    if (!canLeave) return;
+    beforeLeaveHook = null;
+  }
+
   // Authenticated users can't navigate to /login — redirect to containers
   // so the URL and UI stay consistent (chrome visible, data shown).
   if (name === 'login' && store.user) {
@@ -280,8 +334,17 @@ function showView(name: ViewName, params: ViewParams = {}, opts: ShowViewOpts = 
     case 'list':
       if (params.id) renderListView(params.id);
       break;
+    case 'trips':
+      renderTripsView();
+      break;
     case 'trip':
-      renderTripView();
+      if (params.id) renderTripDetailView(params.id);
+      break;
+    case 'trip-wizard':
+      renderTripWizardView();
+      break;
+    case 'trip-edit':
+      if (params.id) renderTripEditView(params.id);
       break;
     case 'settings':
       renderSettingsView();
@@ -328,6 +391,17 @@ document.querySelectorAll<HTMLElement>('.nav-tab').forEach(btn => {
     const tab = btn.dataset['tab'];
     if (tab) showView(tab as ViewName);
   });
+});
+
+// Re-render the current view when units preference changes so temperature
+// labels update without requiring a navigation.
+window.addEventListener('packrat:units-changed', () => {
+  if (currentView === 'trips') renderTripsView();
+  else if (currentView === 'trip') {
+    const state = window.history.state as { params?: { id?: string } } | null;
+    const id = state?.params?.id;
+    if (id) renderTripDetailView(id);
+  }
 });
 
 // ============================================================
@@ -1286,24 +1360,8 @@ async function deleteList(listId: string): Promise<void> {
 }
 
 // ============================================================
-//  TRIP PLANNER (reactive — no submit button)
+//  TRIP UTILITIES (shared by index / detail / wizard)
 // ============================================================
-let tripLocation: GeoLocation | null = null;
-let tripYearClimate: MonthlyClimate[] | null = null;
-const tripMonths = new Set<number>();
-const tripCandidateIds = new Set<string>();
-let tripAIResult: TripAIResult | null = null;
-let tripLocationAbort: AbortController | null = null;
-let tripAIAbort: AbortController | null = null;
-let tripAIGen = 0;
-
-function weatherIcon(high: number | null, precip: number | null, rainy: number | null): string {
-  if ((precip ?? 0) > 40 || (rainy ?? 0) > 10) return '🌧';
-  if ((high ?? 0) >= 28) return '☀️';
-  if ((high ?? 0) >= 18) return '⛅';
-  return '🌥';
-}
-
 function debounce<F extends (...args: never[]) => unknown>(fn: F, ms: number): F {
   let timer: number | undefined;
   return ((...args: never[]) => {
@@ -1312,353 +1370,189 @@ function debounce<F extends (...args: never[]) => unknown>(fn: F, ms: number): F
   }) as F;
 }
 
-function renderTripView(): void {
-  // Reset trip state for a fresh session
-  tripLocation = null;
-  tripYearClimate = null;
-  tripMonths.clear();
-  tripActivities.clear();
-  tripAIResult = null;
-  tripCandidateIds.clear();
-  store.items.forEach((_, id) => tripCandidateIds.add(id));
+function resolvedActivities(): string[] {
+  return store.userActivities ?? ACTIVITIES;
+}
 
-  // Preselect next month as a reasonable default
-  tripMonths.add((new Date().getMonth() + 1) % 12);
+/** Which itemIds from the AI result no longer exist in the inventory. */
+function staleItemIdsIn(trip: Trip): string[] {
+  return staleItemIds(trip.aiResult?.packingList, new Set(store.items.keys()));
+}
 
-  $('trip-content').innerHTML = `
-    <div class="trip-form">
-      <h3>Plan a Trip</h3>
-      <div class="form-group"><label>Destination</label>
-        <input type="text" id="trip-dest" placeholder="e.g. Cozumel, Mexico" autocomplete="off"></div>
-      <div id="trip-climate" class="trip-climate"></div>
-      <div class="form-group"><label>Months (tap to select one or more)</label>
-        <div id="trip-months" class="month-grid"></div>
-      </div>
-      <div class="form-group"><label>Duration</label>
-        <input type="text" id="trip-duration" placeholder="e.g. 2 weeks"></div>
-      <div class="form-group"><label>Activities</label>
-        <div class="activity-grid">
-          ${ACTIVITIES.map(a => `<button type="button" class="activity-btn" data-activity="${a}">${a}</button>`).join('')}
+/** True when the trip's inputs have been edited since AI was last generated. */
+function isTripAIOutdated(trip: Trip): boolean {
+  if (!trip.aiResult || !trip.aiGeneratedAt) return false;
+  return isAIOutdated(timestampMillis(trip.updatedAt), timestampMillis(trip.aiGeneratedAt));
+}
+
+// ============================================================
+//  TRIPS INDEX
+// ============================================================
+function renderTripsView(): void {
+  const stack = $('trips-stack');
+  const empty = $('trips-empty');
+  const trips = [...store.trips.values()].sort(compareTripsDesc);
+
+  if (!trips.length) {
+    stack.innerHTML = '';
+    empty.classList.remove('hidden');
+    return;
+  }
+  empty.classList.add('hidden');
+
+  const unit = getTempUnit();
+  stack.innerHTML = trips
+    .map(t => {
+      const status = !t.aiResult
+        ? `<span class="trip-status trip-status--none">No recommendations yet</span>`
+        : staleItemIdsIn(t).length
+          ? `<span class="trip-status trip-status--warn">Inventory changed</span>`
+          : isTripAIOutdated(t)
+            ? `<span class="trip-status trip-status--warn">Outdated</span>`
+            : `<span class="trip-status trip-status--ok">Ready</span>`;
+      const activitiesLine = t.activities.length
+        ? ` · ${esc(t.activities.slice(0, 3).join(', '))}`
+        : '';
+      const durationStr = formatDuration(t.durationCount, t.durationUnit);
+      const mapImg = t.location
+        ? `<img class="trip-card-map" src="${esc(mapTileUrl(t.location.latitude, t.location.longitude))}" alt="" loading="lazy">`
+        : `<div class="trip-card-map trip-card-map--empty">📍</div>`;
+      let weatherChip = '';
+      if (t.yearClimate) {
+        const tMonths = spannedMonths({
+          startMonth: t.startMonth,
+          startYear: t.startYear,
+          durationCount: t.durationCount,
+          durationUnit: t.durationUnit,
+        });
+        const days = durationToDays(t.durationCount, t.durationUnit);
+        const agg = aggregateMonths(t.yearClimate, tMonths, days);
+        const icon = weatherEmoji(agg.avgHigh, agg.totalPrecip, agg.rainyDays);
+        const rainy = formatRainyDays(agg.rainyDays, days);
+        weatherChip = `<div class="trip-card-weather">${icon} ${agg.avgHigh !== null ? `<strong>${formatTemp(agg.avgHigh, unit)}</strong>` : ''} ${rainy !== '—' ? `· ${esc(rainy)}` : ''}</div>`;
+      }
+      return `
+      <div class="stack-card trip-card" data-action="open-trip" data-id="${t.id}">
+        ${mapImg}
+        <div class="stack-main">
+          <div class="stack-name">${esc(t.name)}</div>
+          <div class="stack-meta">${esc(t.location?.name ?? t.destination)} · ${esc(durationStr)}${activitiesLine}</div>
+          ${weatherChip}
+          <div style="margin-top:4px">${status}</div>
         </div>
-      </div>
-      <div class="form-group"><label>Extra notes</label>
-        <textarea id="trip-notes" rows="2" placeholder="e.g. formal dinner on day 3, kids coming"></textarea></div>
-    </div>
-
-    <div class="candidates-panel">
-      <button class="candidates-toggle" id="btn-candidates-toggle">
-        <span id="candidates-count">Items to consider (${tripCandidateIds.size} selected)</span>
-        <span id="candidates-arrow">▼</span>
-      </button>
-      <div id="candidates-body" class="candidates-body hidden"></div>
-    </div>
-
-    <div id="trip-results" class="trip-results-container"></div>`;
-
-  renderMonthGrid();
-  renderClimateSection();
-  buildCandidatesPanel();
-
-  $('btn-candidates-toggle').addEventListener('click', () => {
-    const body = $('candidates-body');
-    const arrow = $('candidates-arrow');
-    const open = !body.classList.contains('hidden');
-    body.classList.toggle('hidden', open);
-    arrow.textContent = open ? '▼' : '▲';
-  });
-
-  // Wire inputs to reactive updates
-  const onDestChange = debounce(() => {
-    void refreshLocation();
-  }, 500);
-  $('trip-dest').addEventListener('input', onDestChange);
-
-  const onInputChange = debounce(() => {
-    scheduleAIUpdate();
-  }, 500);
-  $('trip-duration').addEventListener('input', onInputChange);
-  $('trip-notes').addEventListener('input', onInputChange);
-
-  document.querySelectorAll<HTMLElement>('.activity-btn').forEach(btn => {
-    btn.addEventListener('click', () => {
-      const a = btn.dataset['activity'];
-      if (!a) return;
-      if (tripActivities.has(a)) tripActivities.delete(a);
-      else tripActivities.add(a);
-      btn.classList.toggle('selected');
-      scheduleAIUpdate();
-    });
-  });
-}
-
-function renderMonthGrid(): void {
-  const grid = $('trip-months');
-  grid.innerHTML = MONTHS.map(
-    (m, i) =>
-      `<button type="button" class="month-chip${tripMonths.has(i) ? ' active' : ''}" data-month="${i}">${m.slice(0, 3)}</button>`,
-  ).join('');
-  grid.querySelectorAll<HTMLElement>('.month-chip').forEach(btn => {
-    btn.addEventListener('click', () => {
-      const i = parseInt(btn.dataset['month'] ?? '0');
-      if (tripMonths.has(i)) tripMonths.delete(i);
-      else tripMonths.add(i);
-      btn.classList.toggle('active');
-      renderClimateSection();
-      scheduleAIUpdate();
-    });
-  });
-}
-
-async function refreshLocation(): Promise<void> {
-  const dest = $('trip-dest').value?.trim() ?? '';
-  // Cancel in-flight requests tied to the previous destination
-  tripLocationAbort?.abort();
-  tripAIAbort?.abort();
-  tripAIGen++; // invalidate any pending AI render
-
-  if (dest.length < 3) {
-    tripLocation = null;
-    tripYearClimate = null;
-    renderClimateSection();
-    renderAISection('');
-    return;
-  }
-
-  const ctrl = new AbortController();
-  tripLocationAbort = ctrl;
-  const climateEl = $('trip-climate');
-  climateEl.innerHTML = `<div class="climate-loading">Finding ${esc(dest)}…</div>`;
-
-  try {
-    const loc = await geocode(dest, ctrl.signal);
-    if (ctrl.signal.aborted) return;
-    tripLocation = loc;
-    climateEl.innerHTML = `<div class="climate-loading">Loading climate for ${esc(loc.name)}…</div>`;
-    const climate = await fetchYearClimate(loc, undefined, ctrl.signal);
-    if (ctrl.signal.aborted) return;
-    tripYearClimate = climate;
-    renderClimateSection();
-    scheduleAIUpdate();
-  } catch (err) {
-    if ((err as Error)?.name === 'AbortError') return;
-    tripLocation = null;
-    tripYearClimate = null;
-    const msg = err instanceof Error ? err.message : 'Lookup failed';
-    climateEl.innerHTML = `<div class="climate-empty">${esc(msg)}</div>`;
-  }
-}
-
-function renderClimateSection(): void {
-  const el = $('trip-climate');
-  if (!tripLocation || !tripYearClimate) {
-    el.innerHTML = tripLocation
-      ? ''
-      : `<div class="climate-empty">Type a destination to see its climate.</div>`;
-    return;
-  }
-
-  const selected = tripMonths.size > 0 ? [...tripMonths] : tripYearClimate.map(c => c.monthIdx);
-  const agg = aggregateMonths(tripYearClimate, selected);
-  const icon = weatherIcon(agg.avgHigh, agg.totalPrecip, agg.rainyDays);
-  const label = tripMonths.size > 0 ? agg.monthName : `${tripLocation.name} · year-round`;
-
-  // Temperature extremes across all months for scaling the bars
-  const allHighs = tripYearClimate.map(c => c.avgHigh).filter((x): x is number => x != null);
-  const allLows = tripYearClimate.map(c => c.avgLow).filter((x): x is number => x != null);
-  const tMin = Math.min(...allLows, 0);
-  const tMax = Math.max(...allHighs, 30);
-  const tRange = Math.max(tMax - tMin, 1);
-  const pct = (v: number): number => ((v - tMin) / tRange) * 100;
-
-  const strip = tripYearClimate
-    .map(
-      c => `
-    <div class="climate-month${tripMonths.has(c.monthIdx) ? ' active' : ''}"
-         data-month="${c.monthIdx}" title="${esc(c.monthName)}: ${c.avgLow ?? '—'}°/${c.avgHigh ?? '—'}°C">
-      <div class="climate-bar-wrap">
-        <div class="climate-bar" style="bottom:${c.avgLow != null ? pct(c.avgLow) : 0}%; top:${c.avgHigh != null ? 100 - pct(c.avgHigh) : 100}%"></div>
-      </div>
-      <div class="climate-m">${c.monthName.slice(0, 1)}</div>
-    </div>`,
-    )
+        <span style="color:var(--text-tertiary);font-size:20px">›</span>
+      </div>`;
+    })
     .join('');
-
-  el.innerHTML = `
-    <div class="climate-summary">
-      <div class="climate-icon">${icon}</div>
-      <div class="climate-info">
-        <div class="climate-place">${esc(label)}</div>
-        <div class="climate-stats">
-          ${agg.avgHigh !== null ? `<span><strong>${agg.avgHigh}°C</strong> high</span>` : ''}
-          ${agg.avgLow !== null ? `<span><strong>${agg.avgLow}°C</strong> low</span>` : ''}
-          ${agg.rainyDays !== null ? `<span><strong>${agg.rainyDays}</strong> rainy day${agg.rainyDays === 1 ? '' : 's'}</span>` : ''}
-        </div>
-      </div>
-    </div>
-    <div class="climate-strip" role="group" aria-label="Monthly climate">${strip}</div>`;
-
-  // Tapping a month in the strip toggles selection too
-  el.querySelectorAll<HTMLElement>('.climate-month').forEach(cell => {
-    cell.addEventListener('click', () => {
-      const i = parseInt(cell.dataset['month'] ?? '0');
-      if (tripMonths.has(i)) tripMonths.delete(i);
-      else tripMonths.add(i);
-      // Update both month grid and climate highlights
-      document
-        .querySelectorAll<HTMLElement>(
-          `.month-chip[data-month="${i}"], .climate-month[data-month="${i}"]`,
-        )
-        .forEach(el => el.classList.toggle('active'));
-      renderClimateSection();
-      scheduleAIUpdate();
-    });
-  });
 }
 
-function buildCandidatesPanel(): void {
-  const body = $('candidates-body');
-  const groups: Record<string, Item[]> = {};
-  store.items.forEach(it => {
-    const g = it.category?.group || 'misc';
-    if (!groups[g]) groups[g] = [];
-    groups[g]!.push(it);
-  });
-  body.innerHTML = Object.entries(groups)
-    .map(
-      ([g, its]) => `
-    <div class="candidate-group-title">${g}</div>
-    ${its
-      .map(
-        it => `
-      <div class="candidate-item">
-        <input type="checkbox" id="cand-${it.id}" ${tripCandidateIds.has(it.id) ? 'checked' : ''}>
-        <label for="cand-${it.id}">${esc(it.name)}</label>
-        <span style="font-size:12px;color:var(--text-tertiary)">${esc(containerName(it.containerId))}</span>
-      </div>`,
-      )
-      .join('')}
-  `,
-    )
-    .join('');
+$('btn-add-trip').addEventListener('click', () => {
+  showView('trip-wizard');
+});
 
-  const debouncedAI = debounce(scheduleAIUpdate, 500);
-  body.querySelectorAll<HTMLInputElement>('input[type="checkbox"]').forEach(cb => {
-    cb.addEventListener('change', e => {
-      const inp = e.currentTarget as HTMLInputElement;
-      const id = inp.id.replace('cand-', '');
-      if (inp.checked) tripCandidateIds.add(id);
-      else tripCandidateIds.delete(id);
-      updateCandidateCount();
-      debouncedAI();
-    });
-  });
-}
-
-function updateCandidateCount(): void {
-  const el = $maybe('candidates-count');
-  if (el) el.textContent = `Items to consider (${tripCandidateIds.size} selected)`;
-}
-
-function scheduleAIUpdate(): void {
-  // Guard: prereqs for an AI call
-  const duration = $('trip-duration').value?.trim() ?? '';
-  const canCall =
-    !!tripLocation &&
-    !!tripYearClimate &&
-    tripMonths.size > 0 &&
-    duration.length > 0 &&
-    tripCandidateIds.size > 0 &&
-    !!getApiKey();
-
-  if (!canCall) {
-    renderPrereqHint();
+// ============================================================
+//  TRIP DETAIL
+// ============================================================
+function renderTripDetailView(tripId: string): void {
+  const trip = store.trips.get(tripId);
+  if (!trip) {
+    showView('trips');
     return;
   }
-  void runAIUpdate();
-}
+  $('header-title').textContent = trip.name;
 
-function renderPrereqHint(): void {
-  const container = $('trip-results');
-  if (tripAIResult) return; // keep showing last successful result
-  const messages: string[] = [];
-  if (!tripLocation) messages.push('• Destination');
-  if (tripMonths.size === 0) messages.push('• At least one month');
-  if (!$('trip-duration').value?.trim()) messages.push('• Duration');
-  if (tripCandidateIds.size === 0) messages.push('• At least one candidate item');
-  if (!getApiKey()) messages.push('• Anthropic API key (Settings)');
+  const content = $('trip-detail-content');
+  const hasKey = !!getApiKey();
+  const stale = staleItemIdsIn(trip);
+  const outdated = isTripAIOutdated(trip);
 
-  if (!messages.length) return;
-  container.innerHTML = `
-    <div class="detail-section" style="color:var(--text-secondary);font-size:14px">
-      <div style="font-weight:600;margin-bottom:6px;color:var(--text)">A packing list will appear when you add:</div>
-      ${messages.join('<br>')}
-    </div>`;
-}
+  const tripMonths = spannedMonths({
+    startMonth: trip.startMonth,
+    startYear: trip.startYear,
+    durationCount: trip.durationCount,
+    durationUnit: trip.durationUnit,
+  });
+  const totalDays = durationToDays(trip.durationCount, trip.durationUnit);
+  const durationStr = formatDuration(trip.durationCount, trip.durationUnit);
+  const unit = getTempUnit();
 
-async function runAIUpdate(): Promise<void> {
-  if (!tripLocation || !tripYearClimate) return;
-  tripAIAbort?.abort();
-  const ctrl = new AbortController();
-  tripAIAbort = ctrl;
-  const myGen = ++tripAIGen;
-
-  const monthIndices = [...tripMonths];
-  const agg = aggregateMonths(tripYearClimate, monthIndices);
-
-  const results = $('trip-results');
-  results.innerHTML = `
-    <div class="detail-section" style="display:flex;align-items:center;gap:10px;color:var(--text-secondary);font-size:14px">
-      <div class="skeleton" style="width:16px;height:16px;border-radius:50%"></div>
-      <span>Updating recommendations…</span>
+  const header = `
+    <div class="detail-section">
+      <div style="font-weight:700;font-size:18px;font-family:'DM Serif Display',serif;margin-bottom:4px">${esc(trip.name)}</div>
+      <div style="color:var(--text-secondary);font-size:14px">${esc(trip.location?.name ?? trip.destination)} · ${esc(formatMonthsLabel(tripMonths))} ${trip.startYear} · ${esc(durationStr)}</div>
+      ${trip.activities.length ? `<div style="margin-top:8px;display:flex;gap:4px;flex-wrap:wrap">${trip.activities.map(a => `<span class="tag">${esc(a)}</span>`).join('')}</div>` : ''}
+      <div class="detail-actions" style="margin-top:12px">
+        <button class="btn-sm accent" data-action="edit-trip" data-id="${tripId}">Edit</button>
+        ${
+          trip.aiResult
+            ? `<button class="btn-sm" data-action="regenerate-trip" data-id="${tripId}">Regenerate</button>`
+            : ''
+        }
+        ${
+          trip.aiResult
+            ? `<button class="btn-sm" data-action="save-trip-as-list" data-id="${tripId}">Save as list</button>`
+            : ''
+        }
+        <button class="btn-sm danger" data-action="delete-trip" data-id="${tripId}">Delete</button>
+      </div>
     </div>`;
 
-  const selectedItems = [...store.items.values()].filter(it => tripCandidateIds.has(it.id));
-  const inventory = inventoryFromItems(selectedItems, containerName, formatCat);
-  const weatherSummary =
-    agg.avgHigh !== null
-      ? `Avg high ${agg.avgHigh}°C, avg low ${agg.avgLow}°C, ~${agg.totalPrecip}mm rain, ${agg.rainyDays} rainy days during ${agg.monthName}`
-      : 'Weather data unavailable';
+  // Weather card
+  const weather = trip.yearClimate
+    ? aggregateMonths(trip.yearClimate, tripMonths, totalDays)
+    : null;
+  const rainyStr = weather ? formatRainyDays(weather.rainyDays, totalDays) : '—';
+  const weatherCard = weather
+    ? `<div class="climate-summary" style="margin-bottom:12px">
+        <div class="climate-icon">${weatherEmoji(weather.avgHigh, weather.totalPrecip, weather.rainyDays)}</div>
+        <div class="climate-info">
+          <div class="climate-place">${esc(weather.monthName)} ${trip.startYear}</div>
+          <div class="climate-stats">
+            ${weather.avgHigh !== null ? `<span><strong>${formatTemp(weather.avgHigh, unit)}</strong> high</span>` : ''}
+            ${weather.avgLow !== null ? `<span><strong>${formatTemp(weather.avgLow, unit)}</strong> low</span>` : ''}
+          </div>
+          <div class="climate-stats climate-stats--sub">
+            ${rainyStr !== '—' ? `<span>${rainyStr}</span>` : ''}
+            ${weather.cloudCoverPct !== null ? `<span>${weather.cloudCoverPct}% cloud</span>` : ''}
+            ${weather.humidityPct !== null ? `<span>${weather.humidityPct}% humidity</span>` : ''}
+          </div>
+        </div>
+      </div>`
+    : '';
 
-  const userMsg = buildUserMessage({
-    destination: tripLocation.name,
-    country: tripLocation.country,
-    duration: $('trip-duration').value?.trim() || 'unspecified duration',
-    monthName: agg.monthName,
-    weatherSummary,
-    activities: [...tripActivities].join(', ') || 'General travel',
-    extraNotes: $('trip-notes').value?.trim() || '',
-    inventory,
-  });
-
-  try {
-    const rawAI = await callAI(userMsg, SYSTEM_PROMPT, getApiKey(), ctrl.signal);
-    if (myGen !== tripAIGen) return;
-    const knownIds = new Set(store.items.keys());
-    const parsed = parseAIResponse(rawAI, knownIds);
-    tripAIResult = parsed;
-    renderTripResults(parsed);
-  } catch (err) {
-    if ((err as Error)?.name === 'AbortError') return;
-    if (myGen !== tripAIGen) return;
-    const msg = err instanceof Error ? err.message : String(err);
-    results.innerHTML = `<div class="detail-section" style="color:var(--danger)">${esc(msg)}</div>`;
+  // No recommendations yet
+  if (!trip.aiResult) {
+    content.innerHTML = `
+      ${header}
+      ${weatherCard}
+      <div class="detail-section" style="text-align:center;padding:24px">
+        <div style="font-size:15px;color:var(--text-secondary);margin-bottom:12px">
+          No recommendations yet.
+        </div>
+        <button class="btn-primary" id="btn-generate-trip" data-id="${tripId}">
+          ${hasKey ? 'Generate recommendations' : 'Add API key in Settings'}
+        </button>
+      </div>`;
+    $maybe('btn-generate-trip')?.addEventListener('click', () => {
+      if (hasKey) regenerateTripRecs(tripId);
+      else showView('settings');
+    });
+    return;
   }
-}
 
-function renderAISection(_placeholder: string): void {
-  // Clears the trip-results area. Kept as a separate function for future use.
-  $('trip-results').innerHTML = '';
-}
+  // Has aiResult — render packing list
+  const staleBanner = stale.length
+    ? `<div class="detail-section" style="background:#FFF3CD;border:1px solid #FFE08A;font-size:13px;color:#856404">⚠️ ${stale.length} recommended item${stale.length === 1 ? '' : 's'} no longer in inventory</div>`
+    : '';
+  const outdatedBanner = outdated
+    ? `<div class="detail-section" style="background:#FFF3CD;border:1px solid #FFE08A;font-size:13px;color:#856404">⚠️ Inputs changed since last generation — regenerate for fresh recommendations</div>`
+    : '';
 
-function renderTripResults(parsed: TripAIResult): void {
-  const results = $('trip-results');
-
-  // Group by container
   const byContainer: Record<string, PackingItem[]> = {};
-  (parsed.packingList || []).forEach(r => {
-    const key = r.container || 'Unassigned';
+  trip.aiResult.packingList.forEach(p => {
+    const key = p.container || 'Unassigned';
     if (!byContainer[key]) byContainer[key] = [];
-    byContainer[key]!.push(r);
+    byContainer[key]!.push(p);
   });
 
   const packHTML = Object.entries(byContainer)
@@ -1682,54 +1576,105 @@ function renderTripResults(parsed: TripAIResult): void {
     )
     .join('');
 
-  const missingHTML = parsed.missingEssentials?.length
-    ? `
-    <div class="results-section">
-      <div class="results-section-header" style="color:#856404;background:#FFF9E6">🛒 Consider buying</div>
-      ${parsed.missingEssentials
-        .map(
-          m => `
-        <div class="result-row">
-          <div class="result-main">
-            <div class="result-name">${esc(m.name)}</div>
-            <div class="result-sub">${esc(m.suggestion)}</div>
-          </div>
-        </div>`,
-        )
-        .join('')}
-    </div>`
+  const missingHTML = trip.aiResult.missingEssentials?.length
+    ? `<div class="results-section">
+        <div class="results-section-header" style="color:#856404;background:#FFF9E6">🛒 Consider buying</div>
+        ${trip.aiResult.missingEssentials
+          .map(
+            m => `
+          <div class="result-row">
+            <div class="result-main">
+              <div class="result-name">${esc(m.name)}</div>
+              <div class="result-sub">${esc(m.suggestion)}</div>
+            </div>
+          </div>`,
+          )
+          .join('')}
+      </div>`
     : '';
 
-  const weatherNoteHTML = parsed.weatherNotes
-    ? `
-    <div class="detail-section" style="background:var(--accent-faint);border:1px solid var(--accent-light)">
-      <p style="font-size:14px;color:var(--accent)">${esc(parsed.weatherNotes)}</p>
-    </div>`
+  const weatherNoteHTML = trip.aiResult.weatherNotes
+    ? `<div class="detail-section" style="background:var(--accent-faint);border:1px solid var(--accent-light)">
+        <p style="font-size:14px;color:var(--accent)">${esc(trip.aiResult.weatherNotes)}</p>
+      </div>`
     : '';
 
-  results.innerHTML = `
+  content.innerHTML = `
+    ${header}
+    ${weatherCard}
+    ${staleBanner}
+    ${outdatedBanner}
     ${weatherNoteHTML}
-    <div class="trip-results">
-      <div style="display:flex;gap:8px;margin-bottom:12px">
-        <button class="btn-sm accent" id="btn-save-trip-list">💾 Save as List</button>
-      </div>
-      ${packHTML}
-      ${missingHTML}
-    </div>`;
-
-  $maybe('btn-save-trip-list')?.addEventListener('click', () => saveTripAsList());
+    ${packHTML}
+    ${missingHTML}`;
 }
 
-async function saveTripAsList(): Promise<void> {
-  if (!tripAIResult || !tripYearClimate) return;
-  const dest = $('trip-dest').value?.trim() || 'Trip';
-  const monthLabel =
-    tripMonths.size > 0 ? aggregateMonths(tripYearClimate, [...tripMonths]).monthName : '';
-  const name = monthLabel ? `${dest} — ${monthLabel}` : dest;
+async function regenerateTripRecs(tripId: string): Promise<void> {
+  const trip = store.trips.get(tripId);
+  if (!trip) return;
+  const key = getApiKey();
+  if (!key) {
+    showView('settings');
+    showToast('Add your Anthropic API key to generate recommendations', '');
+    return;
+  }
+  if (!trip.location || !trip.yearClimate) {
+    showToast('Trip is missing location or climate data; try editing it', 'error');
+    return;
+  }
+
+  showToast('Generating recommendations…', '');
+  const tripMonths = spannedMonths({
+    startMonth: trip.startMonth,
+    startYear: trip.startYear,
+    durationCount: trip.durationCount,
+    durationUnit: trip.durationUnit,
+  });
+  const totalDays = durationToDays(trip.durationCount, trip.durationUnit);
+  const agg = aggregateMonths(trip.yearClimate, tripMonths, totalDays);
+  const candidateItems = trip.candidateItemIds
+    .map(id => store.items.get(id))
+    .filter((it): it is Item => !!it);
+  const inventory = inventoryFromItems(candidateItems, containerName, formatCat);
+  const weatherSummary =
+    agg.avgHigh !== null
+      ? `Avg high ${agg.avgHigh}°C, avg low ${agg.avgLow}°C, ~${agg.totalPrecip}mm rain, ${agg.rainyDays} rainy days during ${agg.monthName} ${trip.startYear}`
+      : 'Weather data unavailable';
+
+  const userMsg = buildUserMessage({
+    destination: trip.location.name,
+    country: trip.location.country,
+    duration: formatDuration(trip.durationCount, trip.durationUnit),
+    monthName: `${agg.monthName} ${trip.startYear}`,
+    weatherSummary,
+    activities: trip.activities.join(', ') || 'General travel',
+    extraNotes: trip.notes,
+    inventory,
+  });
+
+  try {
+    const raw = await callAI(userMsg, SYSTEM_PROMPT, key);
+    const knownIds = new Set(store.items.keys());
+    const parsed = parseAIResponse(raw, knownIds);
+    await updateTrip(tripId, {
+      aiResult: parsed,
+      aiGeneratedAt: serverTimestamp(),
+    });
+    showToast('Recommendations updated', 'success');
+    renderTripDetailView(tripId);
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    showToast('Error: ' + msg, 'error', 5000);
+  }
+}
+
+async function saveTripAsList(tripId: string): Promise<void> {
+  const trip = store.trips.get(tripId);
+  if (!trip?.aiResult) return;
 
   try {
     const listRef = await addDoc(listsCol(), {
-      name,
+      name: trip.name,
       isEssential: false,
       createdAt: serverTimestamp(),
       updatedAt: serverTimestamp(),
@@ -1737,7 +1682,7 @@ async function saveTripAsList(): Promise<void> {
     const listId = listRef.id;
     store.lists.set(listId, {
       id: listId,
-      name,
+      name: trip.name,
       isEssential: false,
       createdAt: serverTimestamp(),
       updatedAt: serverTimestamp(),
@@ -1747,7 +1692,8 @@ async function saveTripAsList(): Promise<void> {
 
     const batch = writeBatch(db);
     let order = 1000;
-    (tripAIResult.packingList || []).forEach(r => {
+    trip.aiResult.packingList.forEach(r => {
+      if (!store.items.has(r.itemId)) return; // skip stale
       const eRef = doc(entriesCol(listId));
       const entry: Record<string, unknown> = {
         itemId: r.itemId,
@@ -1761,12 +1707,926 @@ async function saveTripAsList(): Promise<void> {
     });
     await batch.commit();
 
-    showToast(`Saved as "${name}"`, 'success');
-    viewStack = [];
-    showView('list', { id: listId, title: name });
+    showToast(`Saved as "${trip.name}"`, 'success');
+    showView('list', { id: listId, title: trip.name });
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     showToast('Error saving list: ' + msg, 'error');
+  }
+}
+
+async function deleteTripConfirm(tripId: string): Promise<void> {
+  const trip = store.trips.get(tripId);
+  if (!trip) return;
+  showConfirm(`Delete "${trip.name}"?`, async () => {
+    await deleteTrip(tripId);
+    showToast('Trip deleted', 'success');
+    showView('trips');
+  });
+}
+
+// ============================================================
+//  TRIP WIZARD (create-only)
+// ============================================================
+interface TripDraft {
+  name: string;
+  nameUserEdited: boolean;
+  destination: string;
+  location: GeoLocation | null;
+  locationError: string | null;
+  startMonth: number;
+  startYear: number;
+  durationCount: number;
+  durationUnit: 'days' | 'weeks' | 'months';
+  activities: string[];
+  notes: string;
+  candidateItemIds: string[];
+  yearClimate: MonthlyClimate[] | null;
+}
+
+let wizardDraft: TripDraft | null = null;
+let wizardStep: 1 | 2 | 3 = 1;
+let wizardLocationAbort: AbortController | null = null;
+
+function snapshotDraft(d: TripDraft): string {
+  const forSnapshot: TripDraftSnapshot = {
+    destination: d.destination,
+    location: d.location,
+    startMonth: d.startMonth,
+    startYear: d.startYear,
+    durationCount: d.durationCount,
+    durationUnit: d.durationUnit,
+    activities: d.activities,
+    notes: d.notes,
+    candidateItemIds: d.candidateItemIds,
+    name: d.name,
+  };
+  return makeSnapshot(forSnapshot);
+}
+
+function renderTripWizardView(): void {
+  wizardStep = 1;
+  const year = new Date().getFullYear();
+  const thisMonth = new Date().getMonth();
+  wizardDraft = {
+    name: '',
+    nameUserEdited: false,
+    destination: '',
+    location: null,
+    locationError: null,
+    startMonth: thisMonth,
+    startYear: year,
+    durationCount: 7,
+    durationUnit: 'days',
+    activities: [],
+    notes: '',
+    candidateItemIds: [...store.items.keys()],
+    yearClimate: null,
+  };
+  // No exit guard for create-mode wizard (nothing persisted to lose).
+  setBeforeLeave(null);
+  renderWizardFrame();
+}
+
+function renderWizardFrame(): void {
+  $('header-title').textContent = 'New trip';
+  const root = $('trip-wizard-content');
+  root.innerHTML = `
+    <div class="wizard-left">
+      <div class="wizard-progress" role="tablist">
+        ${[1, 2, 3]
+          .map(
+            i =>
+              `<button type="button" role="tab" class="wizard-dot${i === wizardStep ? ' active' : ''}${i < wizardStep ? ' done' : ''}" data-step="${i}" aria-selected="${i === wizardStep}">${['Where?', 'When?', 'What?'][i - 1]}</button>`,
+          )
+          .join('')}
+      </div>
+      <div id="wizard-step-body"></div>
+      <div class="wizard-nav">
+        <button type="button" class="btn-ghost" id="wizard-back"${wizardStep === 1 ? ' disabled' : ''}>Back</button>
+        <button type="button" class="btn-primary" id="wizard-next">
+          ${wizardStep < 3 ? 'Next' : 'Save trip'}
+        </button>
+      </div>
+    </div>
+    <aside class="wizard-right">
+      <div class="wizard-right-label">Preview</div>
+      <div id="wizard-preview"></div>
+    </aside>`;
+
+  renderWizardStep();
+  $('wizard-back').addEventListener('click', () => {
+    if (wizardStep > 1) {
+      wizardStep = (wizardStep - 1) as 1 | 2 | 3;
+      renderWizardFrame();
+    }
+  });
+  $('wizard-next').addEventListener('click', () => {
+    if (!wizardDraft) return;
+    const result = validateStep(wizardStep, wizardDraft);
+    if (!result.ok) {
+      showToast(result.error, 'error');
+      return;
+    }
+    if (wizardStep < 3) {
+      wizardStep = (wizardStep + 1) as 1 | 2 | 3;
+      renderWizardFrame();
+    } else {
+      void saveWizardTrip();
+    }
+  });
+  // Clickable step dots
+  document.querySelectorAll<HTMLElement>('.wizard-dot').forEach(dot => {
+    dot.addEventListener('click', () => {
+      if (!wizardDraft) return;
+      const target = parseInt(dot.dataset['step'] ?? '0', 10) as 1 | 2 | 3;
+      if (target === wizardStep || target < 1 || target > 3) return;
+      const can = canJumpToStep(target, wizardStep, wizardDraft);
+      if (!can.ok) {
+        showToast(can.error, 'error');
+        return;
+      }
+      wizardStep = target;
+      renderWizardFrame();
+    });
+  });
+}
+
+function renderWizardStep(): void {
+  if (!wizardDraft) return;
+  const body = $('wizard-step-body');
+  if (wizardStep === 1) body.innerHTML = renderStep1(wizardDraft);
+  else if (wizardStep === 2) body.innerHTML = renderStep2(wizardDraft);
+  else body.innerHTML = renderStep3(wizardDraft);
+  wireStepInputs();
+  renderWizardPreview();
+}
+
+function renderStep1(d: TripDraft): string {
+  return `
+    <h2 class="wizard-heading">Where are you going?</h2>
+    <div class="form-group">
+      <label>Destination</label>
+      <input type="text" id="w-dest" value="${esc(d.destination)}" placeholder="e.g. Cozumel, Mexico" autocomplete="off">
+    </div>
+    <div class="form-group">
+      <label>Trip name</label>
+      <input type="text" id="w-name" value="${esc(d.name)}" placeholder="Auto-generated as you fill this out">
+    </div>`;
+}
+
+function renderStep2(d: TripDraft): string {
+  return `
+    <h2 class="wizard-heading">When?</h2>
+    ${renderDateFields(d, 'w')}`;
+}
+
+/** Shared date-inputs block used by wizard step 2 AND the edit form. */
+function renderDateFields(d: TripDraft, prefix: string): string {
+  const currentYear = new Date().getFullYear();
+  const years = [currentYear - 1, currentYear, currentYear + 1, currentYear + 2];
+  const monthOptions = MONTHS.map(
+    (m, i) => `<option value="${i}"${i === d.startMonth ? ' selected' : ''}>${m}</option>`,
+  ).join('');
+  const yearOptions = years
+    .map(y => `<option value="${y}"${y === d.startYear ? ' selected' : ''}>${y}</option>`)
+    .join('');
+  const units: Array<[string, string]> = [
+    ['days', 'days'],
+    ['weeks', 'weeks'],
+    ['months', 'months'],
+  ];
+  const unitOptions = units
+    .map(
+      ([v, label]) =>
+        `<option value="${v}"${v === d.durationUnit ? ' selected' : ''}>${label}</option>`,
+    )
+    .join('');
+  const months = spannedMonths({
+    startMonth: d.startMonth,
+    startYear: d.startYear,
+    durationCount: d.durationCount,
+    durationUnit: d.durationUnit,
+  });
+  const monthsLabel = formatMonthsLabel(months);
+  const totalDays = durationToDays(d.durationCount, d.durationUnit);
+  const hint =
+    monthsLabel && totalDays > 0 ? `Covers ${monthsLabel} ${d.startYear} (≈${totalDays} days)` : '';
+
+  return `
+    <div class="form-group">
+      <label>Start</label>
+      <div class="form-row">
+        <select id="${prefix}-start-month" class="date-select">${monthOptions}</select>
+        <select id="${prefix}-start-year" class="date-select">${yearOptions}</select>
+      </div>
+    </div>
+    <div class="form-group">
+      <label>Duration</label>
+      <div class="form-row">
+        <input type="number" id="${prefix}-dur-count" class="date-input" value="${d.durationCount}" min="1" max="365" style="max-width:100px">
+        <select id="${prefix}-dur-unit" class="date-select">${unitOptions}</select>
+      </div>
+      <div class="form-hint">${esc(hint)}</div>
+    </div>`;
+}
+
+function renderStep3(d: TripDraft): string {
+  const activityList = resolvedActivities();
+  const actChips = activityList
+    .map(
+      a =>
+        `<button type="button" class="activity-btn${d.activities.includes(a) ? ' selected' : ''}" data-activity="${esc(a)}">${esc(a)}</button>`,
+    )
+    .join('');
+  const candidateGroups: Record<string, Item[]> = {};
+  store.items.forEach(it => {
+    const g = it.category?.group || 'misc';
+    if (!candidateGroups[g]) candidateGroups[g] = [];
+    candidateGroups[g]!.push(it);
+  });
+  const candidatesHTML = Object.entries(candidateGroups)
+    .map(
+      ([g, its]) => `
+      <div class="candidate-group-title">${g}</div>
+      ${its
+        .map(
+          it => `
+        <div class="candidate-item">
+          <input type="checkbox" id="w-cand-${it.id}" data-cand="${it.id}" ${d.candidateItemIds.includes(it.id) ? 'checked' : ''}>
+          <label for="w-cand-${it.id}">${esc(it.name)}</label>
+          <span style="font-size:12px;color:var(--text-tertiary)">${esc(containerName(it.containerId))}</span>
+        </div>`,
+        )
+        .join('')}`,
+    )
+    .join('');
+
+  return `
+    <h2 class="wizard-heading">What are you doing?</h2>
+    <div class="form-group">
+      <label>Activities</label>
+      <div class="activity-grid">${actChips}</div>
+    </div>
+    <div class="form-group">
+      <label>Notes</label>
+      <textarea id="w-notes" rows="3" placeholder="e.g. formal dinner on day 3">${esc(d.notes)}</textarea>
+    </div>
+    <div class="candidates-panel" style="margin:0">
+      <button class="candidates-toggle" id="w-cand-toggle">
+        <span>Items to consider (${d.candidateItemIds.length}/${store.items.size})</span>
+        <span id="w-cand-arrow">▼</span>
+      </button>
+      <div id="w-cand-body" class="candidates-body hidden">${candidatesHTML}</div>
+    </div>`;
+}
+
+function wireStepInputs(): void {
+  if (!wizardDraft) return;
+  const d = wizardDraft;
+
+  if (wizardStep === 1) {
+    const onDest = debounce(() => void refreshWizardLocation(), 400);
+    $('w-dest').addEventListener('input', () => {
+      d.destination = ($('w-dest').value ?? '').trim();
+      if (!d.nameUserEdited) updateAutoName();
+      onDest();
+    });
+    $('w-name').addEventListener('input', () => {
+      d.name = $('w-name').value ?? '';
+      d.nameUserEdited = d.name.trim() !== autoName();
+    });
+  }
+
+  if (wizardStep === 2) {
+    wireDateFields(d, 'w', () => {
+      renderWizardStep();
+    });
+  }
+
+  if (wizardStep === 3) {
+    document.querySelectorAll<HTMLElement>('.activity-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const a = btn.dataset['activity'];
+        if (!a) return;
+        const idx = d.activities.indexOf(a);
+        if (idx >= 0) d.activities.splice(idx, 1);
+        else d.activities.push(a);
+        btn.classList.toggle('selected');
+        renderWizardPreview();
+      });
+    });
+    $('w-notes').addEventListener('input', () => {
+      d.notes = $('w-notes').value ?? '';
+      renderWizardPreview();
+    });
+    $('w-cand-toggle').addEventListener('click', () => {
+      const body = $('w-cand-body');
+      const arrow = $('w-cand-arrow');
+      const open = !body.classList.contains('hidden');
+      body.classList.toggle('hidden', open);
+      arrow.textContent = open ? '▼' : '▲';
+    });
+    document
+      .querySelectorAll<HTMLInputElement>('#w-cand-body input[type="checkbox"]')
+      .forEach(cb => {
+        cb.addEventListener('change', () => {
+          const id = cb.dataset['cand'];
+          if (!id) return;
+          const idx = d.candidateItemIds.indexOf(id);
+          if (cb.checked && idx < 0) d.candidateItemIds.push(id);
+          if (!cb.checked && idx >= 0) d.candidateItemIds.splice(idx, 1);
+          renderWizardPreview();
+        });
+      });
+  }
+}
+
+/**
+ * Render the climate preview card + year strip for a trip draft. Shared
+ * by wizard step 2 and the edit form's right panel.
+ */
+function renderClimatePreview(d: TripDraft): string {
+  if (!d.yearClimate) {
+    return `<div class="wizard-preview-empty">Loading climate…</div>`;
+  }
+  const months = spannedMonths({
+    startMonth: d.startMonth,
+    startYear: d.startYear,
+    durationCount: d.durationCount,
+    durationUnit: d.durationUnit,
+  });
+  const totalDays = durationToDays(d.durationCount, d.durationUnit);
+  const agg = aggregateMonths(d.yearClimate, months, totalDays);
+  const unit = getTempUnit();
+  const icon = weatherEmoji(agg.avgHigh, agg.totalPrecip, agg.rainyDays);
+  const allHighs = d.yearClimate.map(c => c.avgHigh).filter((x): x is number => x != null);
+  const allLows = d.yearClimate.map(c => c.avgLow).filter((x): x is number => x != null);
+  const tMin = Math.min(...allLows, 0);
+  const tMax = Math.max(...allHighs, 30);
+  const tRange = Math.max(tMax - tMin, 1);
+  const pct = (v: number): number => ((v - tMin) / tRange) * 100;
+  const strip = d.yearClimate
+    .map(
+      c => `
+    <div class="climate-month${months.includes(c.monthIdx) ? ' active' : ''}" title="${esc(c.monthName)}">
+      <div class="climate-bar-wrap">
+        <div class="climate-bar" style="bottom:${c.avgLow != null ? pct(c.avgLow) : 0}%; top:${c.avgHigh != null ? 100 - pct(c.avgHigh) : 100}%"></div>
+      </div>
+      <div class="climate-m">${c.monthName.slice(0, 1)}</div>
+    </div>`,
+    )
+    .join('');
+  const rainyStr = formatRainyDays(agg.rainyDays, totalDays);
+  return `
+    <div class="climate-summary">
+      <div class="climate-icon">${icon}</div>
+      <div class="climate-info">
+        <div class="climate-place">${esc(agg.monthName || '—')}</div>
+        <div class="climate-stats">
+          ${agg.avgHigh !== null ? `<span><strong>${formatTemp(agg.avgHigh, unit)}</strong> high</span>` : ''}
+          ${agg.avgLow !== null ? `<span><strong>${formatTemp(agg.avgLow, unit)}</strong> low</span>` : ''}
+        </div>
+        <div class="climate-stats climate-stats--sub">
+          ${rainyStr !== '—' ? `<span>${rainyStr}</span>` : ''}
+          ${agg.cloudCoverPct !== null ? `<span>${agg.cloudCoverPct}% cloud</span>` : ''}
+          ${agg.humidityPct !== null ? `<span>${agg.humidityPct}% humidity</span>` : ''}
+        </div>
+      </div>
+    </div>
+    <div class="climate-strip">${strip}</div>`;
+}
+
+/**
+ * Wires up a date-fields block (start month/year + duration count/unit)
+ * to a TripDraft, calling `onChange` after each mutation. Caller is
+ * responsible for re-rendering the derived hint and the preview.
+ */
+function wireDateFields(d: TripDraft, prefix: string, onChange: () => void): void {
+  $(`${prefix}-start-month`).addEventListener('change', e => {
+    d.startMonth = parseInt((e.target as HTMLSelectElement).value, 10);
+    if (!d.nameUserEdited) updateAutoName();
+    onChange();
+  });
+  $(`${prefix}-start-year`).addEventListener('change', e => {
+    d.startYear = parseInt((e.target as HTMLSelectElement).value, 10);
+    if (!d.nameUserEdited) updateAutoName();
+    onChange();
+  });
+  $(`${prefix}-dur-count`).addEventListener('input', e => {
+    const v = parseInt((e.target as HTMLInputElement).value, 10);
+    if (Number.isFinite(v) && v >= 1) {
+      d.durationCount = v;
+      if (!d.nameUserEdited) updateAutoName();
+      onChange();
+    }
+  });
+  $(`${prefix}-dur-unit`).addEventListener('change', e => {
+    d.durationUnit = (e.target as HTMLSelectElement).value as 'days' | 'weeks' | 'months';
+    if (!d.nameUserEdited) updateAutoName();
+    onChange();
+  });
+}
+
+function autoName(): string {
+  if (!wizardDraft) return '';
+  return tripDisplayName({
+    destination: wizardDraft.destination.trim() || '…',
+    startMonth: wizardDraft.startMonth,
+    startYear: wizardDraft.startYear,
+    durationCount: wizardDraft.durationCount,
+    durationUnit: wizardDraft.durationUnit,
+  });
+}
+
+function updateAutoName(): void {
+  if (!wizardDraft) return;
+  wizardDraft.name = autoName();
+  const nameInput = $maybe<HTMLInputElement>('w-name');
+  if (nameInput) nameInput.value = wizardDraft.name;
+  renderWizardPreview();
+}
+
+async function refreshWizardLocation(): Promise<void> {
+  if (!wizardDraft) return;
+  wizardLocationAbort?.abort();
+  const dest = wizardDraft.destination;
+  if (dest.length < 3) {
+    wizardDraft.location = null;
+    wizardDraft.yearClimate = null;
+    wizardDraft.locationError = null;
+    renderWizardPreview();
+    return;
+  }
+  const ctrl = new AbortController();
+  wizardLocationAbort = ctrl;
+  try {
+    const loc = await geocode(dest, ctrl.signal);
+    if (ctrl.signal.aborted || !wizardDraft) return;
+    wizardDraft.location = loc;
+    wizardDraft.locationError = null;
+    renderWizardPreview();
+    const climate = await fetchYearClimate(loc, undefined, ctrl.signal);
+    if (ctrl.signal.aborted || !wizardDraft) return;
+    wizardDraft.yearClimate = climate;
+    renderWizardPreview();
+  } catch (err) {
+    if ((err as Error)?.name === 'AbortError') return;
+    if (!wizardDraft) return;
+    wizardDraft.location = null;
+    wizardDraft.yearClimate = null;
+    wizardDraft.locationError = `Couldn't find "${dest}". Try a different spelling or be more specific.`;
+    renderWizardPreview();
+  }
+}
+
+function renderWizardPreview(): void {
+  if (!wizardDraft) return;
+  const d = wizardDraft;
+  const preview = $('wizard-preview');
+
+  if (wizardStep === 1) {
+    if (d.locationError) {
+      preview.innerHTML = `<div class="wizard-preview-empty wizard-preview-error">${esc(d.locationError)}</div>`;
+      return;
+    }
+    if (!d.location) {
+      preview.innerHTML = `<div class="wizard-preview-empty">Type a destination to see the map.</div>`;
+      return;
+    }
+    const mapUrl = staticMapUrl(d.location.latitude, d.location.longitude);
+    preview.innerHTML = `
+      <iframe class="wizard-map" src="${esc(mapUrl)}" loading="lazy"
+        referrerpolicy="no-referrer-when-downgrade"></iframe>
+      <div class="wizard-location">
+        <div class="wizard-location-name">${esc(d.location.name)}, ${esc(d.location.country)}</div>
+        <div class="wizard-location-coord">${d.location.latitude.toFixed(2)}°, ${d.location.longitude.toFixed(2)}°</div>
+      </div>`;
+    return;
+  }
+
+  if (wizardStep === 2) {
+    preview.innerHTML = renderClimatePreview(d);
+    return;
+  }
+
+  // Step 3: trip summary card
+  const monthsLabel = formatMonthsLabel(
+    spannedMonths({
+      startMonth: d.startMonth,
+      startYear: d.startYear,
+      durationCount: d.durationCount,
+      durationUnit: d.durationUnit,
+    }),
+  );
+  const durStr = formatDuration(d.durationCount, d.durationUnit);
+  preview.innerHTML = `
+    <div class="wizard-summary">
+      <div class="wizard-summary-title">${esc(d.name || autoName())}</div>
+      ${d.location ? `<div class="wizard-summary-row">📍 ${esc(d.location.name)}, ${esc(d.location.country)}</div>` : ''}
+      <div class="wizard-summary-row">📅 ${esc(monthsLabel || '—')} ${d.startYear} · ${esc(durStr)}</div>
+      ${d.activities.length ? `<div class="wizard-summary-row">🎯 ${esc(d.activities.join(', '))}</div>` : ''}
+      ${d.notes.trim() ? `<div class="wizard-summary-row">📝 ${esc(d.notes)}</div>` : ''}
+      <div class="wizard-summary-row">📦 ${d.candidateItemIds.length}/${store.items.size} items to consider</div>
+    </div>
+    ${!getApiKey() ? `<div class="wizard-api-hint">💡 Add your Anthropic API key in Settings to get recommendations after saving.</div>` : ''}`;
+}
+
+async function saveWizardTrip(): Promise<void> {
+  if (!wizardDraft) return;
+  const d = wizardDraft;
+  if (!d.location) {
+    showToast('Pick a destination first', 'error');
+    return;
+  }
+  const name = (d.name.trim() || autoName()).trim();
+  const newId = tripSlug({
+    destination: d.destination,
+    startMonth: d.startMonth,
+    startYear: d.startYear,
+    durationCount: d.durationCount,
+    durationUnit: d.durationUnit,
+  });
+
+  const now = serverTimestamp();
+  const tripData: Omit<Trip, 'id'> = {
+    name,
+    destination: d.destination.trim(),
+    location: d.location,
+    startMonth: d.startMonth,
+    startYear: d.startYear,
+    durationCount: d.durationCount,
+    durationUnit: d.durationUnit,
+    activities: [...d.activities],
+    notes: d.notes,
+    candidateItemIds: [...d.candidateItemIds],
+    yearClimate: d.yearClimate,
+    aiResult: null,
+    aiGeneratedAt: null,
+    createdAt: now,
+    updatedAt: now,
+  };
+
+  try {
+    await createTrip(newId, tripData);
+    setBeforeLeave(null);
+    showToast('Trip saved', 'success');
+    showView('trip', { id: newId });
+    // Convenience: if a key is set and no recs yet, auto-regenerate
+    if (getApiKey() && !tripData.aiResult) {
+      void regenerateTripRecs(newId);
+    }
+  } catch (err) {
+    if ((err as Error)?.message === 'DUPLICATE_TRIP') {
+      const monthName = MONTHS[d.startMonth] ?? '';
+      showToast(
+        `A trip for ${d.destination} in ${monthName} ${d.startYear} already exists`,
+        'error',
+        5000,
+      );
+      return;
+    }
+    const msg = err instanceof Error ? err.message : String(err);
+    showToast('Error saving trip: ' + msg, 'error');
+  }
+}
+
+// ============================================================
+//  TRIP EDIT FORM (single page)
+// ============================================================
+let editDraft: TripDraft | null = null;
+let editTripId: string | null = null;
+let editSavedSnapshot = '';
+let editLocationAbort: AbortController | null = null;
+
+function editDraftDirty(): boolean {
+  if (!editDraft) return false;
+  return snapshotDraft(editDraft) !== editSavedSnapshot;
+}
+
+function renderTripEditView(tripId: string): void {
+  const trip = store.trips.get(tripId);
+  if (!trip) {
+    showView('trips');
+    return;
+  }
+  editTripId = tripId;
+  editDraft = {
+    name: trip.name,
+    nameUserEdited: true,
+    destination: trip.destination,
+    location: trip.location,
+    locationError: null,
+    startMonth: trip.startMonth,
+    startYear: trip.startYear,
+    durationCount: trip.durationCount,
+    durationUnit: trip.durationUnit,
+    activities: [...trip.activities],
+    notes: trip.notes,
+    candidateItemIds: [...trip.candidateItemIds],
+    yearClimate: trip.yearClimate,
+  };
+  editSavedSnapshot = snapshotDraft(editDraft);
+
+  setBeforeLeave(() => {
+    if (editDraftDirty()) {
+      return window.confirm('Discard unsaved changes to this trip?');
+    }
+    return true;
+  });
+
+  $('header-title').textContent = 'Edit trip';
+  renderEditFormFrame();
+}
+
+function renderEditFormFrame(): void {
+  if (!editDraft) return;
+  const d = editDraft;
+  const activityList = resolvedActivities();
+  const actChips = activityList
+    .map(
+      a =>
+        `<button type="button" class="activity-btn${d.activities.includes(a) ? ' selected' : ''}" data-activity="${esc(a)}">${esc(a)}</button>`,
+    )
+    .join('');
+  const candidateGroups: Record<string, Item[]> = {};
+  store.items.forEach(it => {
+    const g = it.category?.group || 'misc';
+    if (!candidateGroups[g]) candidateGroups[g] = [];
+    candidateGroups[g]!.push(it);
+  });
+  const candidatesHTML = Object.entries(candidateGroups)
+    .map(
+      ([g, its]) => `
+      <div class="candidate-group-title">${g}</div>
+      ${its
+        .map(
+          it => `
+        <div class="candidate-item">
+          <input type="checkbox" id="e-cand-${it.id}" data-cand="${it.id}" ${d.candidateItemIds.includes(it.id) ? 'checked' : ''}>
+          <label for="e-cand-${it.id}">${esc(it.name)}</label>
+          <span style="font-size:12px;color:var(--text-tertiary)">${esc(containerName(it.containerId))}</span>
+        </div>`,
+        )
+        .join('')}`,
+    )
+    .join('');
+
+  $('trip-edit-content').innerHTML = `
+    <div class="wizard-left">
+      <div class="edit-section">
+        <h3 class="edit-heading">Where</h3>
+        <div class="form-group">
+          <label>Destination</label>
+          <input type="text" id="e-dest" value="${esc(d.destination)}" placeholder="e.g. Cozumel, Mexico" autocomplete="off">
+        </div>
+        <div class="form-group">
+          <label>Trip name</label>
+          <input type="text" id="e-name" value="${esc(d.name)}" placeholder="Auto-generated">
+        </div>
+      </div>
+      <div class="edit-section">
+        <h3 class="edit-heading">When</h3>
+        ${renderDateFields(d, 'e')}
+      </div>
+      <div class="edit-section">
+        <h3 class="edit-heading">What</h3>
+        <div class="form-group">
+          <label>Activities</label>
+          <div class="activity-grid">${actChips}</div>
+        </div>
+        <div class="form-group">
+          <label>Notes</label>
+          <textarea id="e-notes" rows="3" placeholder="e.g. formal dinner on day 3">${esc(d.notes)}</textarea>
+        </div>
+        <div class="candidates-panel" style="margin:0">
+          <button class="candidates-toggle" id="e-cand-toggle">
+            <span>Items to consider (${d.candidateItemIds.length}/${store.items.size})</span>
+            <span id="e-cand-arrow">▼</span>
+          </button>
+          <div id="e-cand-body" class="candidates-body hidden">${candidatesHTML}</div>
+        </div>
+      </div>
+      <div class="edit-footer">
+        <button type="button" class="btn-ghost" id="edit-cancel">Cancel</button>
+        <button type="button" class="btn-primary" id="edit-save">Save changes</button>
+      </div>
+    </div>
+    <aside class="wizard-right">
+      <div class="wizard-right-label">Preview</div>
+      <div id="edit-preview"></div>
+    </aside>`;
+
+  wireEditForm();
+  renderEditPreview();
+}
+
+function wireEditForm(): void {
+  if (!editDraft) return;
+  const d = editDraft;
+
+  const onDest = debounce(() => void refreshEditLocation(), 400);
+  $('e-dest').addEventListener('input', () => {
+    d.destination = ($('e-dest').value ?? '').trim();
+    if (!d.nameUserEdited) updateEditAutoName();
+    onDest();
+  });
+  $('e-name').addEventListener('input', () => {
+    d.name = $('e-name').value ?? '';
+    d.nameUserEdited = d.name.trim() !== editAutoName();
+  });
+  wireDateFieldsFor(d, 'e', () => {
+    renderEditFormFrame();
+  });
+  document.querySelectorAll<HTMLElement>('.trip-edit-form .activity-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const a = btn.dataset['activity'];
+      if (!a) return;
+      const idx = d.activities.indexOf(a);
+      if (idx >= 0) d.activities.splice(idx, 1);
+      else d.activities.push(a);
+      btn.classList.toggle('selected');
+    });
+  });
+  $('e-notes').addEventListener('input', () => {
+    d.notes = $('e-notes').value ?? '';
+  });
+  $('e-cand-toggle').addEventListener('click', () => {
+    const body = $('e-cand-body');
+    const arrow = $('e-cand-arrow');
+    const open = !body.classList.contains('hidden');
+    body.classList.toggle('hidden', open);
+    arrow.textContent = open ? '▼' : '▲';
+  });
+  document.querySelectorAll<HTMLInputElement>('#e-cand-body input[type="checkbox"]').forEach(cb => {
+    cb.addEventListener('change', () => {
+      const id = cb.dataset['cand'];
+      if (!id) return;
+      const idx = d.candidateItemIds.indexOf(id);
+      if (cb.checked && idx < 0) d.candidateItemIds.push(id);
+      if (!cb.checked && idx >= 0) d.candidateItemIds.splice(idx, 1);
+    });
+  });
+  $('edit-cancel').addEventListener('click', () => {
+    if (editTripId) showView('trip', { id: editTripId });
+  });
+  $('edit-save').addEventListener('click', () => void saveEditedTrip());
+}
+
+/**
+ * Same as wireDateFields but targets the edit draft. The shared helper
+ * uses wizardDraft via updateAutoName(); we need a variant for editDraft.
+ */
+function wireDateFieldsFor(d: TripDraft, prefix: string, onChange: () => void): void {
+  $(`${prefix}-start-month`).addEventListener('change', e => {
+    d.startMonth = parseInt((e.target as HTMLSelectElement).value, 10);
+    if (!d.nameUserEdited) updateEditAutoName();
+    onChange();
+  });
+  $(`${prefix}-start-year`).addEventListener('change', e => {
+    d.startYear = parseInt((e.target as HTMLSelectElement).value, 10);
+    if (!d.nameUserEdited) updateEditAutoName();
+    onChange();
+  });
+  $(`${prefix}-dur-count`).addEventListener('input', e => {
+    const v = parseInt((e.target as HTMLInputElement).value, 10);
+    if (Number.isFinite(v) && v >= 1) {
+      d.durationCount = v;
+      if (!d.nameUserEdited) updateEditAutoName();
+      onChange();
+    }
+  });
+  $(`${prefix}-dur-unit`).addEventListener('change', e => {
+    d.durationUnit = (e.target as HTMLSelectElement).value as 'days' | 'weeks' | 'months';
+    if (!d.nameUserEdited) updateEditAutoName();
+    onChange();
+  });
+}
+
+function editAutoName(): string {
+  if (!editDraft) return '';
+  return tripDisplayName({
+    destination: editDraft.destination.trim() || '…',
+    startMonth: editDraft.startMonth,
+    startYear: editDraft.startYear,
+    durationCount: editDraft.durationCount,
+    durationUnit: editDraft.durationUnit,
+  });
+}
+
+function updateEditAutoName(): void {
+  if (!editDraft) return;
+  editDraft.name = editAutoName();
+  const nameInput = $maybe<HTMLInputElement>('e-name');
+  if (nameInput) nameInput.value = editDraft.name;
+}
+
+async function refreshEditLocation(): Promise<void> {
+  if (!editDraft) return;
+  editLocationAbort?.abort();
+  const dest = editDraft.destination;
+  if (dest.length < 3) {
+    editDraft.location = null;
+    editDraft.yearClimate = null;
+    editDraft.locationError = null;
+    renderEditPreview();
+    return;
+  }
+  const ctrl = new AbortController();
+  editLocationAbort = ctrl;
+  try {
+    const loc = await geocode(dest, ctrl.signal);
+    if (ctrl.signal.aborted || !editDraft) return;
+    editDraft.location = loc;
+    editDraft.locationError = null;
+    renderEditPreview();
+    const climate = await fetchYearClimate(loc, undefined, ctrl.signal);
+    if (ctrl.signal.aborted || !editDraft) return;
+    editDraft.yearClimate = climate;
+    renderEditPreview();
+  } catch (err) {
+    if ((err as Error)?.name === 'AbortError') return;
+    if (!editDraft) return;
+    editDraft.location = null;
+    editDraft.yearClimate = null;
+    editDraft.locationError = `Couldn't find "${dest}". Try a different spelling or be more specific.`;
+    renderEditPreview();
+  }
+}
+
+function renderEditPreview(): void {
+  if (!editDraft) return;
+  const d = editDraft;
+  const preview = $('edit-preview');
+  const mapHTML = d.locationError
+    ? `<div class="wizard-preview-empty wizard-preview-error">${esc(d.locationError)}</div>`
+    : d.location
+      ? `<iframe class="wizard-map" src="${esc(staticMapUrl(d.location.latitude, d.location.longitude))}" loading="lazy" referrerpolicy="no-referrer-when-downgrade"></iframe>
+         <div class="wizard-location">
+           <div class="wizard-location-name">${esc(d.location.name)}, ${esc(d.location.country)}</div>
+           <div class="wizard-location-coord">${d.location.latitude.toFixed(2)}°, ${d.location.longitude.toFixed(2)}°</div>
+         </div>`
+      : `<div class="wizard-preview-empty">Type a destination to see the map.</div>`;
+  preview.innerHTML = `${mapHTML}${renderClimatePreview(d)}`;
+}
+
+async function saveEditedTrip(): Promise<void> {
+  if (!editDraft || !editTripId) return;
+  const d = editDraft;
+  if (!d.location) {
+    showToast('Pick a destination first', 'error');
+    return;
+  }
+  const name = (d.name.trim() || editAutoName()).trim();
+  const newId = tripSlug({
+    destination: d.destination,
+    startMonth: d.startMonth,
+    startYear: d.startYear,
+    durationCount: d.durationCount,
+    durationUnit: d.durationUnit,
+  });
+  const existing = store.trips.get(editTripId);
+  const now = serverTimestamp();
+  const tripData: Omit<Trip, 'id'> = {
+    name,
+    destination: d.destination.trim(),
+    location: d.location,
+    startMonth: d.startMonth,
+    startYear: d.startYear,
+    durationCount: d.durationCount,
+    durationUnit: d.durationUnit,
+    activities: [...d.activities],
+    notes: d.notes,
+    candidateItemIds: [...d.candidateItemIds],
+    yearClimate: d.yearClimate,
+    aiResult: existing?.aiResult ?? null,
+    aiGeneratedAt: existing?.aiGeneratedAt ?? null,
+    createdAt: existing?.createdAt ?? now,
+    updatedAt: now,
+  };
+
+  try {
+    if (newId !== editTripId) {
+      await renameTrip(editTripId, newId, tripData);
+    } else {
+      await updateTrip(editTripId, tripData);
+    }
+    editSavedSnapshot = snapshotDraft(d);
+    setBeforeLeave(null);
+    showToast('Trip saved', 'success');
+    showView('trip', { id: newId });
+  } catch (err) {
+    if ((err as Error)?.message === 'DUPLICATE_TRIP') {
+      const monthName = MONTHS[d.startMonth] ?? '';
+      showToast(
+        `A trip for ${d.destination} in ${monthName} ${d.startYear} already exists`,
+        'error',
+        5000,
+      );
+      return;
+    }
+    const msg = err instanceof Error ? err.message : String(err);
+    showToast('Error saving trip: ' + msg, 'error');
   }
 }
 
@@ -1789,6 +2649,32 @@ function renderSettingsView() {
           <div class="settings-row-label">AI Model</div>
           <div class="settings-row-sub" style="font-family:monospace;font-size:12px">${AI_MODEL}</div>
         </div>
+      </div>
+    </div>
+
+    <div class="settings-group">
+      <div class="settings-group-title">Units</div>
+      <div class="settings-row" style="flex-direction:column;align-items:flex-start;gap:8px">
+        <div class="settings-row-label">Temperature</div>
+        <div class="settings-row-sub">Display temperatures in Celsius or Fahrenheit.</div>
+        <div class="btn-row" role="radiogroup" aria-label="Temperature unit">
+          <button class="btn-sm ${getTempUnit() === 'celsius' ? 'accent' : ''}" id="btn-unit-c" role="radio" aria-checked="${getTempUnit() === 'celsius'}">°C</button>
+          <button class="btn-sm ${getTempUnit() === 'fahrenheit' ? 'accent' : ''}" id="btn-unit-f" role="radio" aria-checked="${getTempUnit() === 'fahrenheit'}">°F</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="settings-group">
+      <div class="settings-group-title">Activities</div>
+      <div class="settings-row" style="flex-direction:column;align-items:flex-start;gap:8px">
+        <div class="settings-row-label">Trip activities</div>
+        <div class="settings-row-sub">Shown in the Trip wizard. Edit to match your travel style.</div>
+        <div id="settings-activities" class="activities-list"></div>
+        <div class="btn-row" style="margin-top:4px">
+          <input type="text" id="settings-new-activity" placeholder="Add activity…" autocomplete="off" style="flex:1">
+          <button class="btn-sm accent" id="btn-add-activity">Add</button>
+        </div>
+        <button class="btn-sm" id="btn-reset-activities">Reset to defaults</button>
       </div>
     </div>
 
@@ -1825,6 +2711,17 @@ function renderSettingsView() {
     showToast(val ? 'API key saved' : 'API key cleared', 'success');
   });
 
+  $maybe('btn-unit-c')?.addEventListener('click', () => {
+    setTempUnit('celsius');
+    renderSettingsView();
+    window.dispatchEvent(new CustomEvent('packrat:units-changed'));
+  });
+  $maybe('btn-unit-f')?.addEventListener('click', () => {
+    setTempUnit('fahrenheit');
+    renderSettingsView();
+    window.dispatchEvent(new CustomEvent('packrat:units-changed'));
+  });
+
   $('btn-logout')?.addEventListener('click', () => {
     showConfirm('Sign out of Packrat?', () => signOut(auth), 'Sign Out');
     $('btn-confirm-ok').textContent = 'Sign Out';
@@ -1836,6 +2733,68 @@ function renderSettingsView() {
   });
 
   $('btn-csv-template')?.addEventListener('click', downloadCSVTemplate);
+
+  renderActivitiesList();
+  $('btn-add-activity')?.addEventListener('click', () => {
+    void addActivityFromInput();
+  });
+  $('settings-new-activity')?.addEventListener('keydown', e => {
+    if ((e as KeyboardEvent).key === 'Enter') void addActivityFromInput();
+  });
+  $('btn-reset-activities')?.addEventListener('click', () => {
+    showConfirm(
+      'Reset activities to the defaults?',
+      async () => {
+        await saveUserActivities(ACTIVITIES.slice());
+        renderActivitiesList();
+        showToast('Activities reset', 'success');
+      },
+      'Reset',
+    );
+  });
+}
+
+function renderActivitiesList(): void {
+  const container = $('settings-activities');
+  const list = resolvedActivities();
+  if (!list.length) {
+    container.innerHTML = `<div style="color:var(--text-tertiary);font-size:13px">No activities yet — add one below.</div>`;
+    return;
+  }
+  container.innerHTML = list
+    .map(
+      (a, i) =>
+        `<span class="activity-pill"><span>${esc(a)}</span><button class="activity-pill-x" data-act-idx="${i}" aria-label="Remove ${esc(a)}">✕</button></span>`,
+    )
+    .join('');
+  container.querySelectorAll<HTMLElement>('.activity-pill-x').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const idx = parseInt(btn.dataset['actIdx'] ?? '-1', 10);
+      const current = resolvedActivities();
+      const next = current.filter((_, i) => i !== idx);
+      await saveUserActivities(next);
+      renderActivitiesList();
+    });
+  });
+}
+
+async function addActivityFromInput(): Promise<void> {
+  const input = $<HTMLInputElement>('settings-new-activity');
+  const raw = (input.value ?? '').trim();
+  if (!raw) return;
+  if (raw.length > 50) {
+    showToast('Activity name is too long (max 50 chars)', 'error');
+    return;
+  }
+  const existing = resolvedActivities();
+  if (existing.some(a => a.toLowerCase() === raw.toLowerCase())) {
+    showToast('That activity already exists', 'error');
+    return;
+  }
+  const next = [...existing, raw];
+  await saveUserActivities(next);
+  input.value = '';
+  renderActivitiesList();
 }
 
 function downloadCSVTemplate() {
@@ -2051,6 +3010,21 @@ document.addEventListener('click', async e => {
       target.classList.toggle('active');
       break;
     }
+    case 'open-trip':
+      showView('trip', { id });
+      break;
+    case 'edit-trip':
+      showView('trip-edit', { id });
+      break;
+    case 'delete-trip':
+      await deleteTripConfirm(id);
+      break;
+    case 'regenerate-trip':
+      await regenerateTripRecs(id);
+      break;
+    case 'save-trip-as-list':
+      await saveTripAsList(id);
+      break;
   }
 });
 

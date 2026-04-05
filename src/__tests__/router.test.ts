@@ -59,7 +59,7 @@ describe('isTopLevel', () => {
     expect(isTopLevel('containers')).toBe(true);
     expect(isTopLevel('items')).toBe(true);
     expect(isTopLevel('lists')).toBe(true);
-    expect(isTopLevel('trip')).toBe(true);
+    expect(isTopLevel('trips')).toBe(true);
   });
 
   it('returns true for login and settings', () => {
@@ -71,6 +71,8 @@ describe('isTopLevel', () => {
     expect(isTopLevel('container')).toBe(false);
     expect(isTopLevel('item')).toBe(false);
     expect(isTopLevel('list')).toBe(false);
+    expect(isTopLevel('trip')).toBe(false);
+    expect(isTopLevel('trip-wizard')).toBe(false);
   });
 });
 
@@ -82,7 +84,7 @@ describe('resolveTitle', () => {
   it('falls back to VIEW_TITLES when no title param', () => {
     expect(resolveTitle('containers')).toBe('Packrat');
     expect(resolveTitle('items')).toBe('Items');
-    expect(resolveTitle('trip')).toBe('Trip Planner');
+    expect(resolveTitle('trips')).toBe('Trips');
   });
 
   it('falls back to "Packrat" when the view title is empty', () => {
@@ -195,7 +197,7 @@ describe('urlToRoute', () => {
   it('maps primary tabs', () => {
     expect(urlToRoute('/items')).toEqual({ name: 'items' });
     expect(urlToRoute('/lists')).toEqual({ name: 'lists' });
-    expect(urlToRoute('/trip')).toEqual({ name: 'trip' });
+    expect(urlToRoute('/trips')).toEqual({ name: 'trips' });
     expect(urlToRoute('/settings')).toEqual({ name: 'settings' });
     expect(urlToRoute('/login')).toEqual({ name: 'login' });
   });
@@ -208,6 +210,15 @@ describe('urlToRoute', () => {
     expect(urlToRoute('/containers/abc')).toEqual({ name: 'container', id: 'abc' });
     expect(urlToRoute('/items/xyz')).toEqual({ name: 'item', id: 'xyz' });
     expect(urlToRoute('/lists/list123')).toEqual({ name: 'list', id: 'list123' });
+  });
+
+  it('maps trip routes', () => {
+    expect(urlToRoute('/trips/new')).toEqual({ name: 'trip-wizard' });
+    expect(urlToRoute('/trips/italy-may-2026')).toEqual({ name: 'trip', id: 'italy-may-2026' });
+    expect(urlToRoute('/trips/italy-may-2026/edit')).toEqual({
+      name: 'trip-edit',
+      id: 'italy-may-2026',
+    });
   });
 
   it('tolerates trailing slashes', () => {
@@ -233,7 +244,7 @@ describe('routeToUrl', () => {
   it('maps primary tabs', () => {
     expect(routeToUrl('items')).toBe('/items');
     expect(routeToUrl('lists')).toBe('/lists');
-    expect(routeToUrl('trip')).toBe('/trip');
+    expect(routeToUrl('trips')).toBe('/trips');
     expect(routeToUrl('settings')).toBe('/settings');
     expect(routeToUrl('login')).toBe('/login');
   });
@@ -242,12 +253,23 @@ describe('routeToUrl', () => {
     expect(routeToUrl('container', { id: 'abc' })).toBe('/containers/abc');
     expect(routeToUrl('item', { id: 'xyz' })).toBe('/items/xyz');
     expect(routeToUrl('list', { id: 'list123' })).toBe('/lists/list123');
+    expect(routeToUrl('trip', { id: 'italy-may-2026' })).toBe('/trips/italy-may-2026');
+  });
+
+  it('maps wizard to new path', () => {
+    expect(routeToUrl('trip-wizard')).toBe('/trips/new');
+  });
+
+  it('maps trip-edit to /trips/:id/edit', () => {
+    expect(routeToUrl('trip-edit', { id: 'italy-may-2026' })).toBe('/trips/italy-may-2026/edit');
+    expect(routeToUrl('trip-edit')).toBe('/trips');
   });
 
   it('falls back to the index path when id is missing on a detail view', () => {
     expect(routeToUrl('container')).toBe('/containers');
     expect(routeToUrl('item')).toBe('/items');
     expect(routeToUrl('list')).toBe('/lists');
+    expect(routeToUrl('trip')).toBe('/trips');
   });
 
   it('ignores the title param', () => {
@@ -260,12 +282,13 @@ describe('urlToRoute ↔ routeToUrl round-trip', () => {
     { name: 'containers' },
     { name: 'items' },
     { name: 'lists' },
-    { name: 'trip' },
+    { name: 'trips' },
     { name: 'settings' },
     { name: 'login' },
     { name: 'container', id: 'abc123' },
     { name: 'item', id: 'xyz' },
     { name: 'list', id: 'listABC' },
+    { name: 'trip', id: 'italy-may-2026' },
   ];
 
   it.each(cases)('round-trips $name${id}', ({ name, id }) => {
