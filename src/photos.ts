@@ -135,9 +135,83 @@ export async function deletePhotoIfExists(path: string | null | undefined): Prom
 type PhotoPickerCallback = (file: File) => void;
 let photoPickerCallback: PhotoPickerCallback | null = null;
 
+/**
+ * Desktop users with a webcam get an in-browser capture UI; touch devices
+ * (phones/tablets) keep the native camera app via the file input with
+ * `capture="environment"`, which is a much richer experience than a
+ * browser <video> element.
+ */
+function shouldUseWebcam(): boolean {
+  if (matchMedia('(pointer: coarse)').matches) return false;
+  return !!navigator.mediaDevices?.getUserMedia;
+}
+
 export function triggerPhotoPicker(mode: 'camera' | 'library'): void {
-  const inp = $<HTMLInputElement>(mode === 'camera' ? 'file-camera' : 'file-library');
-  inp.click();
+  if (mode === 'camera' && shouldUseWebcam()) {
+    openWebcamCapture().catch(() => {
+      // Permission denied, no camera, or unsupported — fall back to OS picker.
+      $<HTMLInputElement>('file-camera').click();
+    });
+    return;
+  }
+  $<HTMLInputElement>(mode === 'camera' ? 'file-camera' : 'file-library').click();
+}
+
+/**
+ * Open a full-screen webcam preview, let the user snap a photo, and
+ * hand the resulting File to the active photo-picker callback (same as
+ * the file inputs). Resolves once the modal is closed.
+ */
+async function openWebcamCapture(): Promise<void> {
+  const stream = await navigator.mediaDevices.getUserMedia({
+    video: { facingMode: { ideal: 'environment' } },
+    audio: false,
+  });
+
+  const overlay = document.createElement('div');
+  overlay.className = 'webcam-overlay';
+  overlay.innerHTML = `
+    <video autoplay playsinline muted></video>
+    <button type="button" class="webcam-cancel" aria-label="Cancel">✕</button>
+    <button type="button" class="webcam-snap" aria-label="Take photo"></button>
+  `;
+  document.body.appendChild(overlay);
+
+  const video = overlay.querySelector('video') as HTMLVideoElement;
+  video.srcObject = stream;
+
+  return new Promise<void>(resolve => {
+    const cleanup = (): void => {
+      stream.getTracks().forEach(t => t.stop());
+      overlay.remove();
+      resolve();
+    };
+
+    overlay.querySelector('.webcam-cancel')!.addEventListener('click', cleanup);
+
+    overlay.querySelector('.webcam-snap')!.addEventListener('click', () => {
+      const canvas = document.createElement('canvas');
+      canvas.width = video.videoWidth;
+      canvas.height = video.videoHeight;
+      const ctx = canvas.getContext('2d');
+      if (!ctx) {
+        cleanup();
+        return;
+      }
+      ctx.drawImage(video, 0, 0);
+      canvas.toBlob(
+        blob => {
+          if (blob && photoPickerCallback) {
+            const file = new File([blob], `camera-${Date.now()}.jpg`, { type: 'image/jpeg' });
+            photoPickerCallback(file);
+          }
+          cleanup();
+        },
+        'image/jpeg',
+        0.92,
+      );
+    });
+  });
 }
 
 (['file-camera', 'file-library'] as const).forEach(id => {
