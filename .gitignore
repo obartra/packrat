@@ -1,0 +1,37 @@
+# build output
+dist/
+
+# netlify
+.netlify/
+
+# env / secrets
+.env
+.env.local
+.env.*.local
+!.env.example
+
+# claude code local settings
+.claude/settings.local.json
+
+# deps
+node_modules/
+
+# vitest coverage
+coverage/
+
+# cypress
+cypress/videos/
+cypress/screenshots/
+cypress/downloads/
+
+# editors
+.vscode/
+.idea/
+*.swp
+
+# os
+.DS_Store
+Thumbs.db
+
+# logs
+*.log
