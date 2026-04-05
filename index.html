@@ -115,9 +115,32 @@
     <div class="view-scroll" id="list-detail-content"></div>
   </div>
 
-  <!-- Trip Planner -->
+  <!-- Trips list -->
+  <div id="view-trips" class="view view-auth">
+    <div class="view-scroll">
+      <div id="trips-stack" class="stack"></div>
+      <div id="trips-empty" class="empty-state hidden">
+        <div class="empty-icon">🗺️</div>
+        <p>No trips yet</p>
+        <small>Tap + to plan your first trip</small>
+      </div>
+    </div>
+    <button class="fab" id="btn-add-trip" aria-label="Create trip">+</button>
+  </div>
+
+  <!-- Trip Detail -->
   <div id="view-trip" class="view view-auth">
-    <div class="view-scroll" id="trip-content"></div>
+    <div class="view-scroll" id="trip-detail-content"></div>
+  </div>
+
+  <!-- Trip Wizard -->
+  <div id="view-trip-wizard" class="view view-auth">
+    <div class="wizard-split" id="trip-wizard-content"></div>
+  </div>
+
+  <!-- Trip Edit Form -->
+  <div id="view-trip-edit" class="view view-auth">
+    <div class="wizard-split trip-edit-form" id="trip-edit-content"></div>
   </div>
 
   <!-- Settings -->
@@ -139,9 +162,9 @@
       <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
       <span>Lists</span>
     </button>
-    <button class="nav-tab" data-tab="trip">
+    <button class="nav-tab" data-tab="trips">
       <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 17l4-8 4 4 4-6 4 10"/></svg>
-      <span>Trip</span>
+      <span>Trips</span>
     </button>
   </nav>
 

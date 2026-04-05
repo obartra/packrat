@@ -11,7 +11,10 @@ export type ViewName =
   | 'item'
   | 'lists'
   | 'list'
+  | 'trips'
   | 'trip'
+  | 'trip-wizard'
+  | 'trip-edit'
   | 'settings';
 
 export interface ViewParams {
@@ -20,7 +23,7 @@ export interface ViewParams {
 }
 
 /** Bottom-nav tabs — always accessible, reset the view stack when tapped. */
-export const PRIMARY_TABS: readonly ViewName[] = ['containers', 'items', 'lists', 'trip'];
+export const PRIMARY_TABS: readonly ViewName[] = ['containers', 'items', 'lists', 'trips'];
 
 /** Views that live at the top of the navigation hierarchy (no back button). */
 export const TOP_LEVEL_VIEWS: readonly ViewName[] = [...PRIMARY_TABS, 'login', 'settings'];
@@ -30,11 +33,14 @@ export const VIEW_TITLES: Record<ViewName, string> = {
   containers: 'Packrat',
   items: 'Items',
   lists: 'Lists',
-  trip: 'Trip Planner',
+  trips: 'Trips',
   settings: 'Settings',
   container: 'Container',
   item: 'Item',
   list: 'Packing List',
+  trip: 'Trip',
+  'trip-wizard': 'Plan a Trip',
+  'trip-edit': 'Edit Trip',
 };
 
 /** True when a view has no back-button parent. */
@@ -83,20 +89,23 @@ export interface RouteMatch {
 export function urlToRoute(pathname: string): RouteMatch {
   const trimmed = pathname.replace(/^\/+/, '').replace(/\/+$/, '');
   if (!trimmed) return { name: 'containers' };
-  const [first, second] = trimmed.split('/');
+  const [first, second, third] = trimmed.split('/');
   switch (first) {
     case 'login':
       return { name: 'login' };
     case 'settings':
       return { name: 'settings' };
-    case 'trip':
-      return { name: 'trip' };
     case 'containers':
       return second ? { name: 'container', id: second } : { name: 'containers' };
     case 'items':
       return second ? { name: 'item', id: second } : { name: 'items' };
     case 'lists':
       return second ? { name: 'list', id: second } : { name: 'lists' };
+    case 'trips':
+      if (!second) return { name: 'trips' };
+      if (second === 'new') return { name: 'trip-wizard' };
+      if (third === 'edit') return { name: 'trip-edit', id: second };
+      return { name: 'trip', id: second };
     default:
       return { name: 'containers' };
   }
@@ -121,8 +130,14 @@ export function routeToUrl(name: ViewName, params: ViewParams = {}): string {
       return '/lists';
     case 'list':
       return params.id ? `/lists/${params.id}` : '/lists';
+    case 'trips':
+      return '/trips';
     case 'trip':
-      return '/trip';
+      return params.id ? `/trips/${params.id}` : '/trips';
+    case 'trip-wizard':
+      return '/trips/new';
+    case 'trip-edit':
+      return params.id ? `/trips/${params.id}/edit` : '/trips';
     case 'settings':
       return '/settings';
   }
