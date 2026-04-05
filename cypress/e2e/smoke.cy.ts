@@ -59,6 +59,21 @@ describe('Packrat smoke tests', () => {
     cy.get('#bottom-nav').should('have.class', 'hidden');
   });
 
+  it('keeps chrome hidden when deep-linking to /login', () => {
+    cy.visit('/login');
+    cy.get('#view-login').should('have.class', 'active');
+    cy.get('#app-header').should('have.class', 'hidden');
+    cy.get('#bottom-nav').should('have.class', 'hidden');
+  });
+
+  it('redirects a logged-out user visiting a protected URL to login', () => {
+    // Logged-out: visiting /items should show the login screen with no chrome.
+    cy.visit('/items');
+    cy.get('#view-login').should('have.class', 'active');
+    cy.get('#app-header').should('have.class', 'hidden');
+    cy.get('#bottom-nav').should('have.class', 'hidden');
+  });
+
   it('has the suitcase emoji favicon', () => {
     cy.get('link[rel="icon"]').should('have.attr', 'href').and('include', 'svg+xml');
   });
