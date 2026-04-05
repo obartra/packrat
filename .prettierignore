@@ -1,0 +1,7 @@
+dist/
+node_modules/
+coverage/
+cypress/videos/
+cypress/screenshots/
+package-lock.json
+*.md
