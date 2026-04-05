@@ -1,5 +1,12 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { aggregateClimate, monthDateRange, geocode, fetchTripWeather } from '../weather';
+import {
+  aggregateClimate,
+  monthDateRange,
+  geocode,
+  fetchTripWeather,
+  aggregateMonths,
+} from '../weather';
+import type { MonthlyClimate } from '../types';
 
 describe('aggregateClimate', () => {
   it('computes avg high/low, total precip, and rainy day count', () => {
@@ -225,5 +232,92 @@ describe('fetchTripWeather', () => {
     expect(w.avgLow).toBeNull();
     expect(w.totalPrecip).toBeNull();
     expect(w.rainyDays).toBeNull();
+  });
+});
+
+describe('aggregateMonths', () => {
+  const year: MonthlyClimate[] = Array.from({ length: 12 }, (_, i) => ({
+    monthIdx: i,
+    monthName: [
+      'January',
+      'February',
+      'March',
+      'April',
+      'May',
+      'June',
+      'July',
+      'August',
+      'September',
+      'October',
+      'November',
+      'December',
+    ][i]!,
+    avgHigh: 10 + i,
+    avgLow: 0 + i,
+    totalPrecip: 20,
+    rainyDays: 3,
+  }));
+
+  it('returns null fields when no months are selected', () => {
+    const agg = aggregateMonths(year, []);
+    expect(agg).toEqual({
+      monthName: '',
+      avgHigh: null,
+      avgLow: null,
+      totalPrecip: null,
+      rainyDays: null,
+    });
+  });
+
+  it('averages temperatures and sums precip/rainy days across selected months', () => {
+    // Dec (high=21,low=11,p=20,r=3) + Jan (high=10,low=0,p=20,r=3)
+    const agg = aggregateMonths(year, [11, 0]);
+    expect(agg.avgHigh).toBe(16); // (21+10)/2 = 15.5 → 16
+    expect(agg.avgLow).toBe(6); // (11+0)/2 = 5.5 → 6
+    expect(agg.totalPrecip).toBe(40);
+    expect(agg.rainyDays).toBe(6);
+  });
+
+  it('labels a single month with its full name', () => {
+    expect(aggregateMonths(year, [4]).monthName).toBe('May');
+  });
+
+  it('labels a contiguous range with a dash', () => {
+    expect(aggregateMonths(year, [5, 6, 7]).monthName).toBe('June–August');
+  });
+
+  it('labels a wrapping contiguous range correctly (calendar-linear)', () => {
+    // Dec → Jan isn't contiguous by numeric index, so it lists them
+    expect(aggregateMonths(year, [11, 0]).monthName).toBe('Jan, Dec');
+  });
+
+  it('labels a non-contiguous set as comma-separated short names', () => {
+    expect(aggregateMonths(year, [1, 4, 9]).monthName).toBe('Feb, May, Oct');
+  });
+
+  it('ignores months not found in the climate array', () => {
+    const partial: MonthlyClimate[] = year.slice(0, 3); // Jan-Mar
+    const agg = aggregateMonths(partial, [0, 5]);
+    expect(agg.avgHigh).toBe(10); // only Jan matched
+    expect(agg.totalPrecip).toBe(20);
+  });
+
+  it('handles months with null climate data gracefully', () => {
+    const sparse: MonthlyClimate[] = [
+      {
+        monthIdx: 0,
+        monthName: 'January',
+        avgHigh: null,
+        avgLow: null,
+        totalPrecip: null,
+        rainyDays: null,
+      },
+      { monthIdx: 1, monthName: 'February', avgHigh: 10, avgLow: 0, totalPrecip: 5, rainyDays: 1 },
+    ];
+    const agg = aggregateMonths(sparse, [0, 1]);
+    expect(agg.avgHigh).toBe(10);
+    expect(agg.avgLow).toBe(0);
+    expect(agg.totalPrecip).toBe(5);
+    expect(agg.rainyDays).toBe(1);
   });
 });

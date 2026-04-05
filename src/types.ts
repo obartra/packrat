@@ -79,6 +79,16 @@ export interface TripWeatherData {
   rainyDays: number | null;
 }
 
+/** Climate aggregate for a single month. Used in the year-round strip. */
+export interface MonthlyClimate {
+  monthIdx: number;
+  monthName: string;
+  avgHigh: number | null;
+  avgLow: number | null;
+  totalPrecip: number | null;
+  rainyDays: number | null;
+}
+
 export interface PackingItem {
   itemId: string;
   itemName: string;

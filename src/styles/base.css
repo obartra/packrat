@@ -32,7 +32,7 @@ button {
   border: none;
   background: none;
 }
-input,
+input:not([type='checkbox']):not([type='radio']),
 select,
 textarea {
   font-family: inherit;
@@ -48,7 +48,7 @@ textarea {
   appearance: none;
   -webkit-appearance: none;
 }
-input:focus,
+input:not([type='checkbox']):not([type='radio']):focus,
 select:focus,
 textarea:focus {
   border-color: var(--accent);
