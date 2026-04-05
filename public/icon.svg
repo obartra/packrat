@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024">
+  <rect width="1024" height="1024" rx="180" fill="#3d7a72"/>
+  <g transform="translate(512 540)" fill="none" stroke="#f7f4ef" stroke-width="36" stroke-linecap="round" stroke-linejoin="round">
+    <!-- handle -->
+    <path d="M-90 -230 v-40 a20 20 0 0 1 20 -20 h140 a20 20 0 0 1 20 20 v40"/>
+    <!-- body -->
+    <rect x="-230" y="-230" width="460" height="360" rx="28"/>
+    <!-- divider -->
+    <line x1="-230" y1="-90" x2="230" y2="-90"/>
+    <line x1="0" y1="-230" x2="0" y2="130"/>
+  </g>
+</svg>
