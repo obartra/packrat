@@ -67,7 +67,7 @@ import {
   MONTHS,
   ACTIVITIES,
   CONTAINER_ICONS,
-  CATEGORY_ICONS,
+  iconForCategory,
   AI_MODEL,
 } from './constants';
 import { parseCSV, type CSVRow } from './csv';
@@ -89,6 +89,10 @@ import { callAI, SYSTEM_PROMPT, buildUserMessage, inventoryFromItems, parseAIRes
 //  FORM STATE (local to this module)
 // ============================================================
 let currentItemFilter = '';
+type ItemsGrouping = 'category' | 'container';
+const ITEMS_GROUPING_KEY = 'packrat_items_grouping';
+let itemsGrouping: ItemsGrouping =
+  localStorage.getItem(ITEMS_GROUPING_KEY) === 'container' ? 'container' : 'category';
 const tripActivities = new Set<string>();
 const tripCandidates = new Map<string, boolean>();
 
@@ -615,6 +619,10 @@ function renderItemsView() {
         )
         .join('');
   }
+  // Group-by segmented control
+  document.querySelectorAll<HTMLElement>('.group-by-row .segment').forEach(btn => {
+    btn.classList.toggle('active', btn.dataset['group'] === itemsGrouping);
+  });
   applyItemFilters();
 }
 
@@ -643,20 +651,38 @@ function applyItemFilters(): void {
   }
   emptyEl.classList.add('hidden');
 
-  // Group by category.group
+  // Group by selected mode (category.group or container)
+  const groupKeyOf = (it: Item): string =>
+    itemsGrouping === 'container' ? containerName(it.containerId) : it.category?.group || 'misc';
+
   const groups: Record<string, Item[]> = {};
   items.forEach(it => {
-    const g = it.category?.group || 'misc';
-    if (!groups[g]) groups[g] = [];
-    groups[g]!.push(it);
+    const k = groupKeyOf(it);
+    if (!groups[k]) groups[k] = [];
+    groups[k]!.push(it);
   });
 
-  content.innerHTML = Object.entries(groups)
+  // Stable group ordering
+  const sortedKeys = Object.keys(groups).sort((a, b) => {
+    if (itemsGrouping === 'category') {
+      const cats = Object.keys(CATEGORIES);
+      return cats.indexOf(a) - cats.indexOf(b);
+    }
+    // Container mode: alphabetical, Unassigned last
+    if (a === 'Unassigned') return 1;
+    if (b === 'Unassigned') return -1;
+    return a.localeCompare(b);
+  });
+
+  const labelFor = (k: string): string =>
+    itemsGrouping === 'category' ? k.charAt(0).toUpperCase() + k.slice(1) : k;
+
+  content.innerHTML = sortedKeys
     .map(
-      ([g, its]) => `
-    <div class="group-header">${g.charAt(0).toUpperCase() + g.slice(1)} <span style="font-size:11px;font-weight:400;text-transform:none;letter-spacing:0">(${its.length})</span></div>
+      k => `
+    <div class="group-header">${esc(labelFor(k))} <span style="font-size:11px;font-weight:400;text-transform:none;letter-spacing:0">(${groups[k]!.length})</span></div>
     <div class="stack" style="margin-bottom:4px">
-      ${its.map(it => renderItemRow(it)).join('')}
+      ${groups[k]!.map(it => renderItemRow(it)).join('')}
     </div>
   `,
     )
@@ -668,7 +694,7 @@ function applyItemFilters(): void {
 }
 
 function renderItemRow(it: Item): string {
-  const icon = CATEGORY_ICONS[it.category?.group ?? 'misc'] || '•';
+  const icon = iconForCategory(it.category?.group, it.category?.value);
   return `
     <div class="item-row" data-action="open-item" data-id="${it.id}">
       <div class="item-thumb">
@@ -689,6 +715,21 @@ $('btn-add-item').addEventListener('click', () => openItemForm());
 
 $('items-search').addEventListener('input', applyItemFilters);
 $('items-filter-container').addEventListener('change', applyItemFilters);
+
+// Group-by segmented control
+document.querySelectorAll<HTMLElement>('.group-by-row .segment').forEach(btn => {
+  btn.addEventListener('click', () => {
+    const g = btn.dataset['group'] as ItemsGrouping;
+    if (g !== itemsGrouping) {
+      itemsGrouping = g;
+      localStorage.setItem(ITEMS_GROUPING_KEY, g);
+      document.querySelectorAll<HTMLElement>('.group-by-row .segment').forEach(b => {
+        b.classList.toggle('active', b.dataset['group'] === g);
+      });
+      applyItemFilters();
+    }
+  });
+});
 
 document.addEventListener('click', e => {
   const target = e.target as HTMLElement | null;
@@ -726,7 +767,7 @@ function renderItemView(itemId: string): void {
       ${
         it.photoPath
           ? `<img id="item-photo" alt="${esc(it.name)}">`
-          : `<div class="no-photo"><div class="no-photo-icon-lg">📋</div><span>No photo</span></div>`
+          : `<div class="no-photo"><div class="no-photo-icon-lg">${iconForCategory(it.category?.group, it.category?.value)}</div><span>No photo</span></div>`
       }
     </div>
     <div class="detail-section">
@@ -807,7 +848,7 @@ function itemFormBody(it: Partial<Item> = {}): string {
     <div class="form-group"><label>Photo</label>
       <div class="photo-input-area">
         <div class="photo-preview" id="f-photo-preview">
-          ${it.photoPath ? '<img id="f-photo-img">' : '📋'}
+          ${it.photoPath ? '<img id="f-photo-img">' : iconForCategory(it.category?.group, it.category?.value)}
         </div>
         <div class="photo-btns">
           <button type="button" class="btn-sm" id="btn-photo-camera">📷 Camera</button>
@@ -843,7 +884,7 @@ function openItemForm(itemId: string | null = null): void {
   $maybe('btn-photo-remove')?.addEventListener('click', () => {
     pendingPhoto.file = 'REMOVE';
     pendingPhoto.oldPath = it.photoPath ?? null;
-    $('f-photo-preview').innerHTML = '📋';
+    $('f-photo-preview').innerHTML = iconForCategory(it.category?.group, it.category?.value);
   });
 }
 

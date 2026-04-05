@@ -77,3 +77,60 @@ export const CATEGORY_ICONS: Record<string, string> = {
   media: '📚',
   misc: '📦',
 };
+
+/** Subtype icons, keyed by `"group/value"`. Falls back to group icon if absent. */
+export const SUBCATEGORY_ICONS: Record<string, string> = {
+  // clothing
+  'clothing/tops': '👕',
+  'clothing/bottoms': '👖',
+  'clothing/underwear': '🩲',
+  'clothing/socks': '🧦',
+  'clothing/outerwear': '🧥',
+  'clothing/swimwear': '🩱',
+  'clothing/activewear': '🏃',
+  'clothing/shoes': '👟',
+  'clothing/accessories': '👓',
+  // toiletries
+  'toiletries/skincare': '🧴',
+  'toiletries/shaving': '🪒',
+  'toiletries/oral-care': '🪥',
+  'toiletries/medication': '💊',
+  'toiletries/supplements': '💊',
+  'toiletries/sunscreen': '☀️',
+  'toiletries/hygiene': '🧼',
+  // electronics
+  'electronics/phone-tablet': '📱',
+  'electronics/cables': '🔌',
+  'electronics/adapters': '🔌',
+  'electronics/audio': '🎧',
+  'electronics/camera': '📷',
+  'electronics/computer': '💻',
+  'electronics/accessories': '🔋',
+  // documents
+  'documents/passport': '🛂',
+  'documents/cards': '💳',
+  'documents/insurance': '📄',
+  'documents/cash': '💵',
+  // gear
+  'gear/diving': '🤿',
+  'gear/outdoor': '🏕️',
+  'gear/workout': '🏋️',
+  // media
+  'media/books': '📚',
+  'media/notebooks': '📓',
+  'media/art-supplies': '🎨',
+  // misc → falls back to group icon
+};
+
+/** Best icon for an item, preferring the subtype over the group. */
+export function iconForCategory(
+  group: string | null | undefined,
+  value: string | null | undefined,
+): string {
+  if (group && value) {
+    const key = `${group}/${value}`;
+    const subtype = SUBCATEGORY_ICONS[key];
+    if (subtype) return subtype;
+  }
+  return CATEGORY_ICONS[group ?? 'misc'] ?? '•';
+}
