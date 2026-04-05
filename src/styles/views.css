@@ -261,6 +261,132 @@
   font-weight: 600;
 }
 
+/* Month multi-select grid */
+.month-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 6px;
+}
+.month-chip {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 8px 4px;
+  font-size: 12px;
+  font-weight: 600;
+  text-align: center;
+  background: var(--surface);
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition:
+    background var(--transition),
+    border-color var(--transition),
+    color var(--transition);
+  -webkit-tap-highlight-color: transparent;
+}
+.month-chip.active {
+  background: var(--accent-light);
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+/* Year-round climate strip */
+.trip-climate {
+  margin-bottom: 14px;
+}
+.climate-loading,
+.climate-empty {
+  font-size: 13px;
+  color: var(--text-tertiary);
+  padding: 8px 0;
+}
+.climate-summary {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  background: linear-gradient(135deg, #1b5e6e 0%, #3d7a72 100%);
+  color: #fff;
+  border-radius: var(--radius);
+  padding: 12px 16px;
+  margin-bottom: 8px;
+}
+.climate-icon {
+  font-size: 28px;
+}
+.climate-info {
+  flex: 1;
+  min-width: 0;
+}
+.climate-place {
+  font-weight: 700;
+  font-size: 14px;
+  margin-bottom: 2px;
+}
+.climate-stats {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+  font-size: 12px;
+  opacity: 0.92;
+}
+.climate-stats strong {
+  font-size: 13px;
+}
+.climate-strip {
+  display: grid;
+  grid-template-columns: repeat(12, 1fr);
+  gap: 2px;
+  height: 56px;
+  padding: 4px;
+  background: var(--border-light);
+  border-radius: var(--radius-sm);
+}
+.climate-month {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  cursor: pointer;
+  border-radius: 4px;
+  transition: background var(--transition);
+  -webkit-tap-highlight-color: transparent;
+}
+.climate-month:hover {
+  background: rgba(61, 122, 114, 0.08);
+}
+.climate-month.active {
+  background: var(--accent-light);
+}
+.climate-bar-wrap {
+  position: relative;
+  flex: 1;
+  width: 100%;
+  padding: 2px;
+}
+.climate-bar {
+  position: absolute;
+  left: 30%;
+  right: 30%;
+  background: var(--accent);
+  border-radius: 2px;
+  opacity: 0.55;
+}
+.climate-month.active .climate-bar {
+  opacity: 1;
+}
+.climate-m {
+  font-size: 9px;
+  font-weight: 700;
+  color: var(--text-tertiary);
+  padding: 1px 0 2px;
+}
+.climate-month.active .climate-m {
+  color: var(--accent);
+}
+
+.trip-results-container {
+  margin-top: 16px;
+}
+
 .candidates-panel {
   background: var(--surface);
   border-radius: var(--radius);

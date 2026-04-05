@@ -98,9 +98,11 @@ export async function callAI(
   userMsg: string,
   systemPrompt: string,
   apiKey: string,
+  signal?: AbortSignal,
 ): Promise<string> {
   const res = await fetch(AI_API_URL, {
     method: 'POST',
+    signal,
     headers: {
       'Content-Type': 'application/json',
       'x-api-key': apiKey,

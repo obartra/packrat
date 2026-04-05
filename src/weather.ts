@@ -1,4 +1,4 @@
-import type { TripWeatherData } from './types';
+import type { TripWeatherData, MonthlyClimate } from './types';
 import { MONTHS } from './constants';
 
 // Open-Meteo geocoding response shape (subset).
@@ -91,11 +91,105 @@ export async function fetchTripWeather(
  * Geocode a destination string to a single best-match location via Open-Meteo.
  * Throws if no location is found.
  */
-export async function geocode(destination: string): Promise<GeoLocation> {
+export async function geocode(destination: string, signal?: AbortSignal): Promise<GeoLocation> {
   const url = `https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(destination)}&count=1&language=en&format=json`;
-  const res = await fetch(url);
+  const res = await fetch(url, signal ? { signal } : undefined);
   const data = await res.json();
   const loc = data?.results?.[0] as GeoLocation | undefined;
   if (!loc) throw new Error(`Could not find location: "${destination}"`);
   return loc;
+}
+
+/**
+ * Fetch a full year of daily climate for a location, returning per-month
+ * aggregates. One archive API call for the whole year.
+ */
+export async function fetchYearClimate(
+  loc: GeoLocation,
+  referenceYear = new Date().getFullYear() - 1,
+  signal?: AbortSignal,
+): Promise<MonthlyClimate[]> {
+  const start = `${referenceYear}-01-01`;
+  const end = `${referenceYear}-12-31`;
+  const url = `https://archive-api.open-meteo.com/v1/archive?latitude=${loc.latitude}&longitude=${loc.longitude}&start_date=${start}&end_date=${end}&daily=temperature_2m_max,temperature_2m_min,precipitation_sum&timezone=auto`;
+  const res = await fetch(url, signal ? { signal } : undefined);
+  const data = await res.json();
+  const daily = data?.daily as
+    | {
+        time?: string[];
+        temperature_2m_max?: (number | null)[];
+        temperature_2m_min?: (number | null)[];
+        precipitation_sum?: (number | null)[];
+      }
+    | undefined;
+
+  // Bucket each day into its month index (0-11).
+  const bucketsMax: number[][] = Array.from({ length: 12 }, () => []);
+  const bucketsMin: number[][] = Array.from({ length: 12 }, () => []);
+  const bucketsPrecip: number[][] = Array.from({ length: 12 }, () => []);
+  (daily?.time ?? []).forEach((dateStr, i) => {
+    const mo = new Date(dateStr).getMonth();
+    const max = daily?.temperature_2m_max?.[i];
+    const min = daily?.temperature_2m_min?.[i];
+    const precip = daily?.precipitation_sum?.[i];
+    if (max != null) bucketsMax[mo]!.push(max);
+    if (min != null) bucketsMin[mo]!.push(min);
+    if (precip != null) bucketsPrecip[mo]!.push(precip);
+  });
+
+  const mean = (arr: number[]): number | null =>
+    arr.length ? Math.round(arr.reduce((a, b) => a + b, 0) / arr.length) : null;
+  const sum = (arr: number[]): number | null =>
+    arr.length ? Math.round(arr.reduce((a, b) => a + b, 0)) : null;
+  const rainy = (arr: number[]): number | null =>
+    arr.length ? arr.filter(d => d > 1).length : null;
+
+  return Array.from({ length: 12 }, (_, i) => ({
+    monthIdx: i,
+    monthName: MONTHS[i] ?? '',
+    avgHigh: mean(bucketsMax[i]!),
+    avgLow: mean(bucketsMin[i]!),
+    totalPrecip: sum(bucketsPrecip[i]!),
+    rainyDays: rainy(bucketsPrecip[i]!),
+  }));
+}
+
+/**
+ * Aggregate selected months from a year-round climate into one summary.
+ * Means are averaged across months; precip/rainyDays are summed.
+ * Caller adds place/country to form a full TripWeatherData.
+ */
+export function aggregateMonths(
+  climates: MonthlyClimate[],
+  monthIndices: number[],
+): Omit<TripWeatherData, 'place' | 'country'> {
+  const selected = climates.filter(c => monthIndices.includes(c.monthIdx));
+  if (!selected.length) {
+    return { monthName: '', avgHigh: null, avgLow: null, totalPrecip: null, rainyDays: null };
+  }
+  const highs = selected.map(c => c.avgHigh).filter((x): x is number => x != null);
+  const lows = selected.map(c => c.avgLow).filter((x): x is number => x != null);
+  const precips = selected.map(c => c.totalPrecip).filter((x): x is number => x != null);
+  const rainies = selected.map(c => c.rainyDays).filter((x): x is number => x != null);
+  const mean = (a: number[]): number | null =>
+    a.length ? Math.round(a.reduce((x, y) => x + y, 0) / a.length) : null;
+  const sum = (a: number[]): number | null => (a.length ? a.reduce((x, y) => x + y, 0) : null);
+
+  // Human-readable label: contiguous ranges use a dash, else list.
+  const sortedIdx = [...monthIndices].sort((a, b) => a - b);
+  const contiguous = sortedIdx.every((v, i) => i === 0 || v === sortedIdx[i - 1]! + 1);
+  const label =
+    sortedIdx.length === 1
+      ? (MONTHS[sortedIdx[0]!] ?? '')
+      : contiguous
+        ? `${MONTHS[sortedIdx[0]!]}–${MONTHS[sortedIdx[sortedIdx.length - 1]!]}`
+        : sortedIdx.map(i => MONTHS[i]?.slice(0, 3) ?? '').join(', ');
+
+  return {
+    monthName: label,
+    avgHigh: mean(highs),
+    avgLow: mean(lows),
+    totalPrecip: sum(precips),
+    rainyDays: sum(rainies),
+  };
 }

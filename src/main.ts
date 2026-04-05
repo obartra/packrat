@@ -31,9 +31,9 @@ import type {
   ListEntry,
   Category,
   CategoriesMap,
-  TripWeatherData,
   TripAIResult,
   PackingItem,
+  MonthlyClimate,
 } from './types';
 import { auth, db } from './firebase';
 import { $, $maybe, esc } from './utils';
@@ -82,7 +82,7 @@ import {
   type ViewName,
   type ViewParams,
 } from './router';
-import { geocode, fetchTripWeather } from './weather';
+import { geocode, fetchYearClimate, aggregateMonths, type GeoLocation } from './weather';
 import { callAI, SYSTEM_PROMPT, buildUserMessage, inventoryFromItems, parseAIResponse } from './ai';
 
 // ============================================================
@@ -94,7 +94,6 @@ const ITEMS_GROUPING_KEY = 'packrat_items_grouping';
 let itemsGrouping: ItemsGrouping =
   localStorage.getItem(ITEMS_GROUPING_KEY) === 'container' ? 'container' : 'category';
 const tripActivities = new Set<string>();
-const tripCandidates = new Map<string, boolean>();
 
 // ============================================================
 //  UTILITY
@@ -1287,26 +1286,56 @@ async function deleteList(listId: string): Promise<void> {
 }
 
 // ============================================================
-//  TRIP PLANNER
+//  TRIP PLANNER (reactive — no submit button)
 // ============================================================
-let tripWeatherData: TripWeatherData | null = null;
+let tripLocation: GeoLocation | null = null;
+let tripYearClimate: MonthlyClimate[] | null = null;
+const tripMonths = new Set<number>();
+const tripCandidateIds = new Set<string>();
 let tripAIResult: TripAIResult | null = null;
+let tripLocationAbort: AbortController | null = null;
+let tripAIAbort: AbortController | null = null;
+let tripAIGen = 0;
 
-function renderTripView() {
+function weatherIcon(high: number | null, precip: number | null, rainy: number | null): string {
+  if ((precip ?? 0) > 40 || (rainy ?? 0) > 10) return '🌧';
+  if ((high ?? 0) >= 28) return '☀️';
+  if ((high ?? 0) >= 18) return '⛅';
+  return '🌥';
+}
+
+function debounce<F extends (...args: never[]) => unknown>(fn: F, ms: number): F {
+  let timer: number | undefined;
+  return ((...args: never[]) => {
+    if (timer) clearTimeout(timer);
+    timer = window.setTimeout(() => fn(...args), ms);
+  }) as F;
+}
+
+function renderTripView(): void {
+  // Reset trip state for a fresh session
+  tripLocation = null;
+  tripYearClimate = null;
+  tripMonths.clear();
   tripActivities.clear();
+  tripAIResult = null;
+  tripCandidateIds.clear();
+  store.items.forEach((_, id) => tripCandidateIds.add(id));
+
+  // Preselect next month as a reasonable default
+  tripMonths.add((new Date().getMonth() + 1) % 12);
+
   $('trip-content').innerHTML = `
     <div class="trip-form">
       <h3>Plan a Trip</h3>
       <div class="form-group"><label>Destination</label>
         <input type="text" id="trip-dest" placeholder="e.g. Cozumel, Mexico" autocomplete="off"></div>
-      <div class="form-row">
-        <div class="form-group"><label>Month</label>
-          <select id="trip-month">
-            ${MONTHS.map((m, i) => `<option value="${i}">${m}</option>`).join('')}
-          </select></div>
-        <div class="form-group"><label>Duration</label>
-          <input type="text" id="trip-duration" placeholder="e.g. 2 weeks"></div>
+      <div id="trip-climate" class="trip-climate"></div>
+      <div class="form-group"><label>Months (tap to select one or more)</label>
+        <div id="trip-months" class="month-grid"></div>
       </div>
+      <div class="form-group"><label>Duration</label>
+        <input type="text" id="trip-duration" placeholder="e.g. 2 weeks"></div>
       <div class="form-group"><label>Activities</label>
         <div class="activity-grid">
           ${ACTIVITIES.map(a => `<button type="button" class="activity-btn" data-activity="${a}">${a}</button>`).join('')}
@@ -1316,41 +1345,18 @@ function renderTripView() {
         <textarea id="trip-notes" rows="2" placeholder="e.g. formal dinner on day 3, kids coming"></textarea></div>
     </div>
 
-    <!-- Essential lists toggle -->
-    <div class="trip-form" style="margin-bottom:16px">
-      <div style="font-weight:700;font-size:14px;margin-bottom:10px">Include packing lists</div>
-      <div id="trip-list-toggles" style="display:flex;flex-wrap:wrap;gap:8px">
-        ${[...store.lists.values()]
-          .map(
-            l => `
-          <button type="button" class="chip${l.isEssential ? ' active' : ''}" data-action="toggle-list" data-id="${l.id}">${esc(l.name)}</button>
-        `,
-          )
-          .join('')}
-        ${!store.lists.size ? '<span style="color:var(--text-tertiary);font-size:13px">No lists yet</span>' : ''}
-      </div>
-    </div>
-
-    <!-- Candidate items -->
     <div class="candidates-panel">
       <button class="candidates-toggle" id="btn-candidates-toggle">
-        <span>Items to consider (${store.items.size} selected)</span>
+        <span id="candidates-count">Items to consider (${tripCandidateIds.size} selected)</span>
         <span id="candidates-arrow">▼</span>
       </button>
       <div id="candidates-body" class="candidates-body hidden"></div>
     </div>
 
-    <button id="btn-generate" class="btn-primary" style="margin-top:16px">Get Packing List</button>
-    <div id="trip-results"></div>`;
+    <div id="trip-results" class="trip-results-container"></div>`;
 
-  // Preset month to next month
-  const nextMonth = (new Date().getMonth() + 1) % 12;
-  $('trip-month').value = String(nextMonth);
-
-  // Init all items as candidates
-  tripCandidates.clear();
-  store.items.forEach((_, id) => tripCandidates.set(id, true));
-
+  renderMonthGrid();
+  renderClimateSection();
   buildCandidatesPanel();
 
   $('btn-candidates-toggle').addEventListener('click', () => {
@@ -1361,7 +1367,152 @@ function renderTripView() {
     arrow.textContent = open ? '▼' : '▲';
   });
 
-  $('btn-generate').addEventListener('click', runTripPlanner);
+  // Wire inputs to reactive updates
+  const onDestChange = debounce(() => {
+    void refreshLocation();
+  }, 500);
+  $('trip-dest').addEventListener('input', onDestChange);
+
+  const onInputChange = debounce(() => {
+    scheduleAIUpdate();
+  }, 500);
+  $('trip-duration').addEventListener('input', onInputChange);
+  $('trip-notes').addEventListener('input', onInputChange);
+
+  document.querySelectorAll<HTMLElement>('.activity-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const a = btn.dataset['activity'];
+      if (!a) return;
+      if (tripActivities.has(a)) tripActivities.delete(a);
+      else tripActivities.add(a);
+      btn.classList.toggle('selected');
+      scheduleAIUpdate();
+    });
+  });
+}
+
+function renderMonthGrid(): void {
+  const grid = $('trip-months');
+  grid.innerHTML = MONTHS.map(
+    (m, i) =>
+      `<button type="button" class="month-chip${tripMonths.has(i) ? ' active' : ''}" data-month="${i}">${m.slice(0, 3)}</button>`,
+  ).join('');
+  grid.querySelectorAll<HTMLElement>('.month-chip').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const i = parseInt(btn.dataset['month'] ?? '0');
+      if (tripMonths.has(i)) tripMonths.delete(i);
+      else tripMonths.add(i);
+      btn.classList.toggle('active');
+      renderClimateSection();
+      scheduleAIUpdate();
+    });
+  });
+}
+
+async function refreshLocation(): Promise<void> {
+  const dest = $('trip-dest').value?.trim() ?? '';
+  // Cancel in-flight requests tied to the previous destination
+  tripLocationAbort?.abort();
+  tripAIAbort?.abort();
+  tripAIGen++; // invalidate any pending AI render
+
+  if (dest.length < 3) {
+    tripLocation = null;
+    tripYearClimate = null;
+    renderClimateSection();
+    renderAISection('');
+    return;
+  }
+
+  const ctrl = new AbortController();
+  tripLocationAbort = ctrl;
+  const climateEl = $('trip-climate');
+  climateEl.innerHTML = `<div class="climate-loading">Finding ${esc(dest)}…</div>`;
+
+  try {
+    const loc = await geocode(dest, ctrl.signal);
+    if (ctrl.signal.aborted) return;
+    tripLocation = loc;
+    climateEl.innerHTML = `<div class="climate-loading">Loading climate for ${esc(loc.name)}…</div>`;
+    const climate = await fetchYearClimate(loc, undefined, ctrl.signal);
+    if (ctrl.signal.aborted) return;
+    tripYearClimate = climate;
+    renderClimateSection();
+    scheduleAIUpdate();
+  } catch (err) {
+    if ((err as Error)?.name === 'AbortError') return;
+    tripLocation = null;
+    tripYearClimate = null;
+    const msg = err instanceof Error ? err.message : 'Lookup failed';
+    climateEl.innerHTML = `<div class="climate-empty">${esc(msg)}</div>`;
+  }
+}
+
+function renderClimateSection(): void {
+  const el = $('trip-climate');
+  if (!tripLocation || !tripYearClimate) {
+    el.innerHTML = tripLocation
+      ? ''
+      : `<div class="climate-empty">Type a destination to see its climate.</div>`;
+    return;
+  }
+
+  const selected = tripMonths.size > 0 ? [...tripMonths] : tripYearClimate.map(c => c.monthIdx);
+  const agg = aggregateMonths(tripYearClimate, selected);
+  const icon = weatherIcon(agg.avgHigh, agg.totalPrecip, agg.rainyDays);
+  const label = tripMonths.size > 0 ? agg.monthName : `${tripLocation.name} · year-round`;
+
+  // Temperature extremes across all months for scaling the bars
+  const allHighs = tripYearClimate.map(c => c.avgHigh).filter((x): x is number => x != null);
+  const allLows = tripYearClimate.map(c => c.avgLow).filter((x): x is number => x != null);
+  const tMin = Math.min(...allLows, 0);
+  const tMax = Math.max(...allHighs, 30);
+  const tRange = Math.max(tMax - tMin, 1);
+  const pct = (v: number): number => ((v - tMin) / tRange) * 100;
+
+  const strip = tripYearClimate
+    .map(
+      c => `
+    <div class="climate-month${tripMonths.has(c.monthIdx) ? ' active' : ''}"
+         data-month="${c.monthIdx}" title="${esc(c.monthName)}: ${c.avgLow ?? '—'}°/${c.avgHigh ?? '—'}°C">
+      <div class="climate-bar-wrap">
+        <div class="climate-bar" style="bottom:${c.avgLow != null ? pct(c.avgLow) : 0}%; top:${c.avgHigh != null ? 100 - pct(c.avgHigh) : 100}%"></div>
+      </div>
+      <div class="climate-m">${c.monthName.slice(0, 1)}</div>
+    </div>`,
+    )
+    .join('');
+
+  el.innerHTML = `
+    <div class="climate-summary">
+      <div class="climate-icon">${icon}</div>
+      <div class="climate-info">
+        <div class="climate-place">${esc(label)}</div>
+        <div class="climate-stats">
+          ${agg.avgHigh !== null ? `<span><strong>${agg.avgHigh}°C</strong> high</span>` : ''}
+          ${agg.avgLow !== null ? `<span><strong>${agg.avgLow}°C</strong> low</span>` : ''}
+          ${agg.rainyDays !== null ? `<span><strong>${agg.rainyDays}</strong> rainy day${agg.rainyDays === 1 ? '' : 's'}</span>` : ''}
+        </div>
+      </div>
+    </div>
+    <div class="climate-strip" role="group" aria-label="Monthly climate">${strip}</div>`;
+
+  // Tapping a month in the strip toggles selection too
+  el.querySelectorAll<HTMLElement>('.climate-month').forEach(cell => {
+    cell.addEventListener('click', () => {
+      const i = parseInt(cell.dataset['month'] ?? '0');
+      if (tripMonths.has(i)) tripMonths.delete(i);
+      else tripMonths.add(i);
+      // Update both month grid and climate highlights
+      document
+        .querySelectorAll<HTMLElement>(
+          `.month-chip[data-month="${i}"], .climate-month[data-month="${i}"]`,
+        )
+        .forEach(el => el.classList.toggle('active'));
+      renderClimateSection();
+      scheduleAIUpdate();
+    });
+  });
 }
 
 function buildCandidatesPanel(): void {
@@ -1380,7 +1531,7 @@ function buildCandidatesPanel(): void {
       .map(
         it => `
       <div class="candidate-item">
-        <input type="checkbox" id="cand-${it.id}" ${tripCandidates.get(it.id) ? 'checked' : ''}>
+        <input type="checkbox" id="cand-${it.id}" ${tripCandidateIds.has(it.id) ? 'checked' : ''}>
         <label for="cand-${it.id}">${esc(it.name)}</label>
         <span style="font-size:12px;color:var(--text-tertiary)">${esc(containerName(it.containerId))}</span>
       </div>`,
@@ -1390,129 +1541,117 @@ function buildCandidatesPanel(): void {
     )
     .join('');
 
+  const debouncedAI = debounce(scheduleAIUpdate, 500);
   body.querySelectorAll<HTMLInputElement>('input[type="checkbox"]').forEach(cb => {
     cb.addEventListener('change', e => {
       const inp = e.currentTarget as HTMLInputElement;
       const id = inp.id.replace('cand-', '');
-      tripCandidates.set(id, inp.checked);
+      if (inp.checked) tripCandidateIds.add(id);
+      else tripCandidateIds.delete(id);
       updateCandidateCount();
+      debouncedAI();
     });
   });
 }
 
 function updateCandidateCount(): void {
-  const count = [...tripCandidates.values()].filter(Boolean).length;
-  const toggle = $('btn-candidates-toggle');
-  const span = toggle.querySelector('span');
-  if (span) span.textContent = `Items to consider (${count} selected)`;
+  const el = $maybe('candidates-count');
+  if (el) el.textContent = `Items to consider (${tripCandidateIds.size} selected)`;
 }
 
-async function runTripPlanner(): Promise<void> {
-  const dest = $('trip-dest').value?.trim();
-  if (!dest) {
-    showToast('Please enter a destination', 'error');
+function scheduleAIUpdate(): void {
+  // Guard: prereqs for an AI call
+  const duration = $('trip-duration').value?.trim() ?? '';
+  const canCall =
+    !!tripLocation &&
+    !!tripYearClimate &&
+    tripMonths.size > 0 &&
+    duration.length > 0 &&
+    tripCandidateIds.size > 0 &&
+    !!getApiKey();
+
+  if (!canCall) {
+    renderPrereqHint();
     return;
   }
-  if (!getApiKey()) {
-    showToast('Add your Anthropic API key in Settings first', 'error');
-    return;
-  }
-
-  const btn = $('btn-generate');
-  btn.disabled = true;
-  btn.textContent = '⏳ Fetching weather…';
-  $('trip-results').innerHTML = '';
-  tripWeatherData = null;
-  tripAIResult = null;
-
-  try {
-    // Step 1: Geocode
-    const loc = await geocode(dest);
-
-    // Step 2: Historical weather for selected month
-    const monthIdx = parseInt($('trip-month').value ?? '0');
-    tripWeatherData = await fetchTripWeather(loc, monthIdx);
-    const { avgHigh, avgLow, totalPrecip, rainyDays } = tripWeatherData;
-
-    // Step 3: Render weather card immediately
-    renderWeatherCard(tripWeatherData);
-
-    btn.textContent = '🤖 Generating recommendations…';
-
-    // Step 4: Build inventory for prompt
-    const selectedItems = [...store.items.values()].filter(it => tripCandidates.get(it.id));
-    const inventory = inventoryFromItems(selectedItems, containerName, formatCat);
-
-    const weatherSummary =
-      avgHigh !== null
-        ? `Avg high ${avgHigh}°C, avg low ${avgLow}°C, ~${totalPrecip}mm rain, ${rainyDays} rainy days in ${MONTHS[monthIdx]}`
-        : 'Weather data unavailable';
-
-    const userMsg = buildUserMessage({
-      destination: loc.name,
-      country: loc.country,
-      duration: $('trip-duration')?.value?.trim() || 'unspecified duration',
-      monthName: MONTHS[monthIdx] ?? '',
-      weatherSummary,
-      activities: [...tripActivities].join(', ') || 'General travel',
-      extraNotes: $('trip-notes')?.value?.trim() || '',
-      inventory,
-    });
-
-    const rawAI = await callAI(userMsg, SYSTEM_PROMPT, getApiKey());
-
-    // Step 5: Parse
-    const knownIds = new Set(store.items.keys());
-    let parsed: TripAIResult;
-    try {
-      parsed = parseAIResponse(rawAI, knownIds);
-    } catch (cause) {
-      throw new Error('AI returned unexpected format. Try again.', { cause });
-    }
-    tripAIResult = parsed;
-
-    // Step 6: Render results
-    renderTripResults(parsed);
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
-    showToast(msg, 'error', 5000);
-    $('trip-results').innerHTML =
-      `<div class="detail-section" style="color:var(--danger)">${esc(msg)}</div>`;
-  } finally {
-    btn.disabled = false;
-    btn.textContent = 'Get Packing List';
-  }
+  void runAIUpdate();
 }
 
-function renderWeatherCard(w: TripWeatherData): void {
-  const icon =
-    (w.totalPrecip ?? 0) > 40 || (w.rainyDays ?? 0) > 10
-      ? '🌧'
-      : (w.avgHigh ?? 0) >= 28
-        ? '☀️'
-        : (w.avgHigh ?? 0) >= 18
-          ? '⛅'
-          : '🌥';
+function renderPrereqHint(): void {
+  const container = $('trip-results');
+  if (tripAIResult) return; // keep showing last successful result
+  const messages: string[] = [];
+  if (!tripLocation) messages.push('• Destination');
+  if (tripMonths.size === 0) messages.push('• At least one month');
+  if (!$('trip-duration').value?.trim()) messages.push('• Duration');
+  if (tripCandidateIds.size === 0) messages.push('• At least one candidate item');
+  if (!getApiKey()) messages.push('• Anthropic API key (Settings)');
+
+  if (!messages.length) return;
+  container.innerHTML = `
+    <div class="detail-section" style="color:var(--text-secondary);font-size:14px">
+      <div style="font-weight:600;margin-bottom:6px;color:var(--text)">A packing list will appear when you add:</div>
+      ${messages.join('<br>')}
+    </div>`;
+}
+
+async function runAIUpdate(): Promise<void> {
+  if (!tripLocation || !tripYearClimate) return;
+  tripAIAbort?.abort();
+  const ctrl = new AbortController();
+  tripAIAbort = ctrl;
+  const myGen = ++tripAIGen;
+
+  const monthIndices = [...tripMonths];
+  const agg = aggregateMonths(tripYearClimate, monthIndices);
+
   const results = $('trip-results');
   results.innerHTML = `
-    <div class="weather-card">
-      <div class="weather-icon">${icon}</div>
-      <div class="weather-info">
-        <div class="weather-place">${esc(w.place)}, ${esc(w.country)}</div>
-        <div class="weather-month">${w.monthName} (historical avg)</div>
-        <div class="weather-stats">
-          ${w.avgHigh !== null ? `<span class="weather-stat"><strong>${w.avgHigh}°C</strong> high</span>` : ''}
-          ${w.avgLow !== null ? `<span class="weather-stat"><strong>${w.avgLow}°C</strong> low</span>` : ''}
-          ${w.rainyDays !== null ? `<span class="weather-stat"><strong>${w.rainyDays}</strong> rainy days</span>` : ''}
-        </div>
-      </div>
-    </div>
-    <div style="text-align:center;color:var(--text-tertiary);font-size:14px;padding:12px">Generating packing list…</div>`;
+    <div class="detail-section" style="display:flex;align-items:center;gap:10px;color:var(--text-secondary);font-size:14px">
+      <div class="skeleton" style="width:16px;height:16px;border-radius:50%"></div>
+      <span>Updating recommendations…</span>
+    </div>`;
+
+  const selectedItems = [...store.items.values()].filter(it => tripCandidateIds.has(it.id));
+  const inventory = inventoryFromItems(selectedItems, containerName, formatCat);
+  const weatherSummary =
+    agg.avgHigh !== null
+      ? `Avg high ${agg.avgHigh}°C, avg low ${agg.avgLow}°C, ~${agg.totalPrecip}mm rain, ${agg.rainyDays} rainy days during ${agg.monthName}`
+      : 'Weather data unavailable';
+
+  const userMsg = buildUserMessage({
+    destination: tripLocation.name,
+    country: tripLocation.country,
+    duration: $('trip-duration').value?.trim() || 'unspecified duration',
+    monthName: agg.monthName,
+    weatherSummary,
+    activities: [...tripActivities].join(', ') || 'General travel',
+    extraNotes: $('trip-notes').value?.trim() || '',
+    inventory,
+  });
+
+  try {
+    const rawAI = await callAI(userMsg, SYSTEM_PROMPT, getApiKey(), ctrl.signal);
+    if (myGen !== tripAIGen) return;
+    const knownIds = new Set(store.items.keys());
+    const parsed = parseAIResponse(rawAI, knownIds);
+    tripAIResult = parsed;
+    renderTripResults(parsed);
+  } catch (err) {
+    if ((err as Error)?.name === 'AbortError') return;
+    if (myGen !== tripAIGen) return;
+    const msg = err instanceof Error ? err.message : String(err);
+    results.innerHTML = `<div class="detail-section" style="color:var(--danger)">${esc(msg)}</div>`;
+  }
+}
+
+function renderAISection(_placeholder: string): void {
+  // Clears the trip-results area. Kept as a separate function for future use.
+  $('trip-results').innerHTML = '';
 }
 
 function renderTripResults(parsed: TripAIResult): void {
   const results = $('trip-results');
-  const weatherHTML = results.querySelector('.weather-card')?.outerHTML || '';
 
   // Group by container
   const byContainer: Record<string, PackingItem[]> = {};
@@ -1569,7 +1708,6 @@ function renderTripResults(parsed: TripAIResult): void {
     : '';
 
   results.innerHTML = `
-    ${weatherHTML}
     ${weatherNoteHTML}
     <div class="trip-results">
       <div style="display:flex;gap:8px;margin-bottom:12px">
@@ -1583,10 +1721,11 @@ function renderTripResults(parsed: TripAIResult): void {
 }
 
 async function saveTripAsList(): Promise<void> {
-  if (!tripAIResult) return;
+  if (!tripAIResult || !tripYearClimate) return;
   const dest = $('trip-dest').value?.trim() || 'Trip';
-  const month = MONTHS[parseInt($('trip-month').value ?? '0')] ?? '';
-  const name = `${dest} — ${month}`;
+  const monthLabel =
+    tripMonths.size > 0 ? aggregateMonths(tripYearClimate, [...tripMonths]).monthName : '';
+  const name = monthLabel ? `${dest} — ${monthLabel}` : dest;
 
   try {
     const listRef = await addDoc(listsCol(), {
