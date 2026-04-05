@@ -210,13 +210,21 @@ const initialPath = window.location.pathname;
 onAuthStateChanged(auth, async (user: User | null) => {
   if (user) {
     store.user = user;
-    await loadAllData();
     setupListeners();
-    // Navigate to the route the user arrived at (deep-link support),
-    // defaulting to containers for unknown paths. showView handles
-    // chrome visibility and the /login redirect for authed users.
+    // Navigate immediately — never block on Firestore. A slow or failing
+    // data fetch used to trap users on the login screen with the button
+    // stuck on "…". Views render from the store and re-render below once
+    // loadAllData completes.
     const match = urlToRoute(initialPath);
     showView(match.name, match.id ? { id: match.id } : {}, { replace: true });
+    try {
+      await loadAllData();
+      // Re-render current view with the freshly loaded data.
+      showView(currentView, currentViewParams, { replace: true });
+    } catch (err) {
+      console.error('loadAllData failed', err);
+      showToast('Could not load your data — check your connection.', 'error', 4000);
+    }
   } else {
     teardownListeners();
     clearStore();
@@ -236,6 +244,7 @@ interface ShowViewOpts {
 }
 
 let currentView: ViewName = 'login';
+let currentViewParams: ViewParams = {};
 let viewStack: ViewName[] = [];
 
 /**
@@ -270,6 +279,7 @@ function showView(name: ViewName, params: ViewParams = {}, opts: ShowViewOpts = 
   const el = $maybe(`view-${name}`);
   if (el) el.classList.add('active');
   currentView = name;
+  currentViewParams = params;
 
   // Sync URL with view (unless this call was triggered by a history event)
   if (!opts.fromHistory) {

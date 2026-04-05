@@ -74,8 +74,13 @@ describe('Packrat smoke tests', () => {
     cy.get('#bottom-nav').should('have.class', 'hidden');
   });
 
-  it('has the suitcase emoji favicon', () => {
-    cy.get('link[rel="icon"]').should('have.attr', 'href').and('include', 'svg+xml');
+  it('has an SVG favicon and PWA manifest wired up', () => {
+    cy.get('link[rel="icon"][type="image/svg+xml"]')
+      .should('have.attr', 'href')
+      .and('include', '.svg');
+    cy.get('link[rel="manifest"]').should('have.attr', 'href', '/manifest.webmanifest');
+    cy.get('link[rel="apple-touch-icon"]').should('exist');
+    cy.get('meta[name="apple-mobile-web-app-capable"]').should('have.attr', 'content', 'yes');
   });
 
   it('sets the mobile-friendly viewport meta', () => {
