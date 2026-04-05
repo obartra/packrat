@@ -780,10 +780,16 @@ function itemFormBody(it: Partial<Item> = {}): string {
     )
     .join('');
 
-  const valOpts = (g: string | undefined): string =>
-    (CATEGORIES[(g || 'misc') as keyof CategoriesMap] || CATEGORIES.misc)
+  // When the stored group is missing or unknown, the browser falls back to the
+  // first <option> in the group dropdown — align the category values with that
+  // same default so the two selects never disagree on first render.
+  const firstGroupKey = Object.keys(CATEGORIES)[0] as keyof CategoriesMap;
+  const valOpts = (g: string | undefined): string => {
+    const key = (g && g in CATEGORIES ? g : firstGroupKey) as keyof CategoriesMap;
+    return CATEGORIES[key]
       .map(v => `<option value="${v}" ${it.category?.value === v ? 'selected' : ''}>${v}</option>`)
       .join('');
+  };
 
   const contOpts =
     '<option value="">Unassigned</option>' +
