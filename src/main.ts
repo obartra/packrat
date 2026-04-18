@@ -75,6 +75,7 @@ import {
   CONTAINER_ICONS,
   iconForCategory,
   AI_MODEL,
+  AI_API_URL,
 } from './constants';
 import { parseCSV, type CSVRow } from './csv';
 import {
@@ -1055,7 +1056,10 @@ function openItemForm(itemId: string | null = null): void {
     if (inferenceAbort) inferenceAbort.abort();
 
     const apiKey = getApiKey();
-    if (!apiKey) return;
+    if (!apiKey) {
+      showToast('Add your Anthropic API key in Settings to auto-fill from photos', '');
+      return;
+    }
 
     const requestId = ++inferenceRequestId;
     inferenceAbort = new AbortController();
@@ -1103,6 +1107,7 @@ function openItemForm(itemId: string | null = null): void {
         clearTimeout(timeoutId);
         if (err instanceof DOMException && err.name === 'AbortError') return;
         console.warn('Inference failed:', err);
+        showToast('Photo analysis failed — fill fields manually', 'error');
       })
       .finally(() => {
         if (requestId === inferenceRequestId) {
@@ -2800,7 +2805,10 @@ function renderSettingsView() {
         <div class="settings-row-label">Anthropic API Key</div>
         <div class="settings-row-sub">Stored only on this device. Never synced.</div>
         <input type="password" id="settings-api-key" value="${esc(key)}" placeholder="sk-ant-…" autocomplete="off">
-        <button class="btn-sm accent" id="btn-save-key">Save Key</button>
+        <div class="btn-row" style="align-items:center">
+          <button class="btn-sm accent" id="btn-save-key">Save Key</button>
+          <span id="key-status" style="font-size:13px"></span>
+        </div>
       </div>
       <div class="settings-row">
         <div>
@@ -2863,10 +2871,57 @@ function renderSettingsView() {
       Packrat v0.3 · <a href="https://github.com" target="_blank">Source</a>
     </div>`;
 
-  $maybe('btn-save-key')?.addEventListener('click', () => {
+  $maybe('btn-save-key')?.addEventListener('click', async () => {
     const val = $('settings-api-key').value?.trim() ?? '';
     setApiKey(val);
-    showToast(val ? 'API key saved' : 'API key cleared', 'success');
+    const statusEl = $maybe('key-status');
+    if (!val) {
+      if (statusEl) statusEl.textContent = '';
+      showToast('API key cleared', 'success');
+      return;
+    }
+    if (statusEl) {
+      statusEl.textContent = 'Validating…';
+      statusEl.style.color = 'var(--text-secondary)';
+    }
+    try {
+      const res = await fetch(AI_API_URL, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-api-key': val,
+          'anthropic-version': '2023-06-01',
+          'anthropic-dangerous-direct-browser-access': 'true',
+        },
+        body: JSON.stringify({
+          model: AI_MODEL,
+          max_tokens: 1,
+          messages: [{ role: 'user', content: '.' }],
+        }),
+      });
+      if (res.ok) {
+        if (statusEl) {
+          statusEl.textContent = '✓ Valid';
+          statusEl.style.color = 'var(--success, #2e7d32)';
+        }
+        showToast('API key saved and verified', 'success');
+      } else {
+        const errText = await res.text();
+        const msg = res.status === 401 ? 'Invalid key' : `Error (${res.status})`;
+        if (statusEl) {
+          statusEl.textContent = '✗ ' + msg;
+          statusEl.style.color = 'var(--danger, #c62828)';
+        }
+        showToast(msg + ' — check your API key', 'error');
+        console.warn('API key validation failed:', errText.slice(0, 200));
+      }
+    } catch {
+      if (statusEl) {
+        statusEl.textContent = '✗ Network error';
+        statusEl.style.color = 'var(--danger, #c62828)';
+      }
+      showToast('Could not reach Anthropic API', 'error');
+    }
   });
 
   $maybe('btn-unit-c')?.addEventListener('click', () => {
