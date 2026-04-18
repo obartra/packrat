@@ -31,10 +31,21 @@ export interface Item {
   quantityPackDefault: number;
   containerId: string | null;
   photoPath: string | null;
+  color?: string | null;
+  description?: string | null;
   tags: string[];
   notes: string;
   createdAt: TimestampField;
   updatedAt: TimestampField;
+}
+
+export interface InferenceResult {
+  name: string;
+  description: string;
+  categoryGroup: string | null;
+  categoryValue: string | null;
+  color: string | null;
+  tags: string[];
 }
 
 export interface List {
@@ -145,6 +156,8 @@ export type CategoryGroup =
   | 'documents'
   | 'gear'
   | 'media'
+  | 'travel'
+  | 'food'
   | 'misc';
 
 export type CategoriesMap = Record<CategoryGroup, string[]>;

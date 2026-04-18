@@ -26,9 +26,20 @@ VITE_FIREBASE_APP_ID
 
 No other env vars are needed. The Anthropic API key is BYO per device (stored in `localStorage`), and Open-Meteo is keyless.
 
+**Optional — for authenticated E2E tests:**
+
+```
+CYPRESS_TEST_EMAIL
+CYPRESS_TEST_PASSWORD
+```
+
+These point to a Firebase test account used by Cypress to log in and test post-auth features (item form, photo inference, etc.). Tests that need them auto-skip when the vars are missing, so CI still passes without them. See below for setup.
+
 ### Local dev
 
 Copy `.env.example` → `.env.local`, fill in values.
+
+For authenticated E2E tests, also add `CYPRESS_TEST_EMAIL` and `CYPRESS_TEST_PASSWORD` to `.env`. The Cypress config loads them via Vite's `loadEnv`.
 
 ### GitHub Actions
 
@@ -82,6 +93,15 @@ The router uses `history.pushState`, so direct URL hits on non-root paths must s
 Both jobs need `VITE_FIREBASE_*` because the Firebase init throws at startup when vars are missing. Cypress uploads screenshots as an artifact on failure.
 
 The jobs run in parallel. PR merging should be gated on both passing (configure this in GitHub → repo settings → branches → branch protection rules → require status checks to pass).
+
+### Authenticated E2E tests
+
+Some Cypress tests (item form, photo inference) require a logged-in user. They use `CYPRESS_TEST_EMAIL` / `CYPRESS_TEST_PASSWORD` to sign in via the login form before each test.
+
+- **Locally:** add `CYPRESS_TEST_EMAIL` and `CYPRESS_TEST_PASSWORD` to `.env` (gitignored). `cypress.config.ts` loads them via Vite's `loadEnv`.
+- **CI:** add as GitHub Actions secrets (`CYPRESS_TEST_EMAIL`, `CYPRESS_TEST_PASSWORD`). If missing, the tests auto-skip rather than fail.
+
+The test account should be on a test Firebase project (not production) so E2E runs don't pollute real data. Tests clean up after themselves (delete items they create).
 
 ---
 

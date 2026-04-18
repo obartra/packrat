@@ -1,6 +1,7 @@
 import type { CategoriesMap } from './types';
 
 export const AI_MODEL = 'claude-sonnet-4-6';
+export const AI_INFERENCE_MODEL = 'claude-haiku-4-5';
 export const AI_API_URL = 'https://api.anthropic.com/v1/messages';
 
 export const CATEGORIES: CategoriesMap = {
@@ -23,11 +24,26 @@ export const CATEGORIES: CategoriesMap = {
     'supplements',
     'sunscreen',
     'hygiene',
+    'fragrance',
+    'first-aid',
   ],
   electronics: ['phone-tablet', 'cables', 'adapters', 'audio', 'camera', 'computer', 'accessories'],
-  documents: ['passport', 'cards', 'insurance', 'cash'],
+  documents: [
+    'passport',
+    'identification',
+    'certificates',
+    'cards',
+    'insurance',
+    'medical',
+    'financial',
+    'legal',
+    'visas',
+    'cash',
+  ],
   gear: ['diving', 'outdoor', 'workout'],
   media: ['books', 'notebooks', 'art-supplies'],
+  travel: ['comfort', 'organization', 'security', 'other'],
+  food: ['snacks', 'beverages', 'baby-food', 'other'],
   misc: ['other'],
 };
 
@@ -75,6 +91,8 @@ export const CATEGORY_ICONS: Record<string, string> = {
   documents: '📄',
   gear: '🤿',
   media: '📚',
+  travel: '🧳',
+  food: '🍎',
   misc: '📦',
 };
 
@@ -108,8 +126,14 @@ export const SUBCATEGORY_ICONS: Record<string, string> = {
   'electronics/accessories': '🔋',
   // documents
   'documents/passport': '🛂',
+  'documents/identification': '🪪',
+  'documents/certificates': '📜',
   'documents/cards': '💳',
   'documents/insurance': '📄',
+  'documents/medical': '🏥',
+  'documents/financial': '🏦',
+  'documents/legal': '⚖️',
+  'documents/visas': '📋',
   'documents/cash': '💵',
   // gear
   'gear/diving': '🤿',
@@ -119,6 +143,17 @@ export const SUBCATEGORY_ICONS: Record<string, string> = {
   'media/books': '📚',
   'media/notebooks': '📓',
   'media/art-supplies': '🎨',
+  // toiletries (new subtypes)
+  'toiletries/fragrance': '🧴',
+  'toiletries/first-aid': '🩹',
+  // travel
+  'travel/comfort': '😴',
+  'travel/organization': '🧳',
+  'travel/security': '🔒',
+  // food
+  'food/snacks': '🍪',
+  'food/beverages': '🥤',
+  'food/baby-food': '🍼',
   // misc → falls back to group icon
 };
 

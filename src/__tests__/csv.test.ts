@@ -93,4 +93,25 @@ describe('parseCSV', () => {
       notes: '',
     });
   });
+
+  it('parses description and color columns', () => {
+    const text =
+      'name,category_group,category_value,quantity_owned,quantity_pack_default,container_name,tags,notes,description,color\n' +
+      '"Navy polo shirt",clothing,tops,1,1,"",casual,"","Lightweight cotton polo",#1B3A5C';
+    const rows = parseCSV(text);
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({
+      name: 'Navy polo shirt',
+      description: 'Lightweight cotton polo',
+      color: '#1B3A5C',
+    });
+  });
+
+  it('handles missing description and color columns gracefully', () => {
+    const text = 'name,category_group,category_value\n' + 'Socks,clothing,socks';
+    const rows = parseCSV(text);
+    expect(rows).toHaveLength(1);
+    expect(rows[0]!.description).toBeUndefined();
+    expect(rows[0]!.color).toBeUndefined();
+  });
 });

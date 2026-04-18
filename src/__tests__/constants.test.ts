@@ -2,12 +2,15 @@ import { describe, it, expect } from 'vitest';
 import {
   CATEGORIES,
   CATEGORY_ICONS,
+  SUBCATEGORY_ICONS,
   CONTAINER_TYPES,
   CONTAINER_ICONS,
   MONTHS,
   ACTIVITIES,
   AI_API_URL,
   AI_MODEL,
+  AI_INFERENCE_MODEL,
+  iconForCategory,
 } from '../constants';
 
 describe('CATEGORIES taxonomy', () => {
@@ -45,6 +48,56 @@ describe('icon coverage', () => {
     Object.values(CATEGORY_ICONS).forEach(v => expect(v.length).toBeGreaterThan(0));
     Object.values(CONTAINER_ICONS).forEach(v => expect(v.length).toBeGreaterThan(0));
   });
+
+  it('SUBCATEGORY_ICONS has entries for all non-"other" subtypes', () => {
+    Object.entries(CATEGORIES).forEach(([group, values]) => {
+      values
+        .filter(v => v !== 'other')
+        .forEach(v => {
+          const key = `${group}/${v}`;
+          expect(SUBCATEGORY_ICONS[key], `missing icon for "${key}"`).toBeDefined();
+        });
+    });
+  });
+
+  it('every SUBCATEGORY_ICONS key maps to a valid group/value pair', () => {
+    Object.keys(SUBCATEGORY_ICONS).forEach(key => {
+      const [group, value] = key.split('/');
+      expect(
+        group! in CATEGORIES,
+        `unknown group "${group}" in SUBCATEGORY_ICONS key "${key}"`,
+      ).toBe(true);
+      const values = CATEGORIES[group as keyof typeof CATEGORIES];
+      expect(values, `group "${group}" has no values`).toBeDefined();
+      expect(values).toContain(value);
+    });
+  });
+});
+
+describe('iconForCategory', () => {
+  it('returns subtype icon when both group and value have a mapping', () => {
+    expect(iconForCategory('clothing', 'tops')).toBe(SUBCATEGORY_ICONS['clothing/tops']);
+  });
+
+  it('falls back to group icon when subtype is not in SUBCATEGORY_ICONS', () => {
+    expect(iconForCategory('misc', 'other')).toBe(CATEGORY_ICONS['misc']);
+  });
+
+  it('returns group icon when value is null', () => {
+    expect(iconForCategory('clothing', null)).toBe(CATEGORY_ICONS['clothing']);
+  });
+
+  it('returns group icon when value is undefined', () => {
+    expect(iconForCategory('clothing', undefined)).toBe(CATEGORY_ICONS['clothing']);
+  });
+
+  it('returns misc icon when group is null', () => {
+    expect(iconForCategory(null, null)).toBe(CATEGORY_ICONS['misc']);
+  });
+
+  it('returns bullet fallback when group is unknown', () => {
+    expect(iconForCategory('nonexistent', null)).toBe('•');
+  });
 });
 
 describe('MONTHS / ACTIVITIES / AI constants', () => {
@@ -68,6 +121,11 @@ describe('MONTHS / ACTIVITIES / AI constants', () => {
   it('AI_MODEL is a non-empty string', () => {
     expect(typeof AI_MODEL).toBe('string');
     expect(AI_MODEL.length).toBeGreaterThan(0);
+  });
+
+  it('AI_INFERENCE_MODEL is a non-empty string', () => {
+    expect(typeof AI_INFERENCE_MODEL).toBe('string');
+    expect(AI_INFERENCE_MODEL.length).toBeGreaterThan(0);
   });
 });
 

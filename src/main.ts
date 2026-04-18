@@ -62,10 +62,11 @@ import {
   deletePhotoIfExists,
   triggerPhotoPicker,
   setupSheetPhotoButtons,
+  setPhotoPickerCallback,
 } from './photos';
 import { showToast } from './ui/toast';
 import { showConfirm } from './ui/confirm';
-import { openSheet, closeSheet } from './ui/sheet';
+import { openSheet, closeSheet, setOnSheetClose } from './ui/sheet';
 import {
   CATEGORIES,
   CONTAINER_TYPES,
@@ -110,6 +111,7 @@ import {
 } from './trips';
 import { geocode, fetchYearClimate, aggregateMonths, type GeoLocation } from './weather';
 import { callAI, SYSTEM_PROMPT, buildUserMessage, inventoryFromItems, parseAIResponse } from './ai';
+import { inferFromPhoto } from './inference';
 
 // ============================================================
 //  FORM STATE (local to this module)
@@ -120,6 +122,10 @@ const ITEMS_GROUPING_KEY = 'packrat_items_grouping';
 let itemsGrouping: ItemsGrouping =
   localStorage.getItem(ITEMS_GROUPING_KEY) === 'container' ? 'container' : 'category';
 
+// Inference lifecycle
+let inferenceRequestId = 0;
+let inferenceAbort: AbortController | null = null;
+
 // ============================================================
 //  UTILITY
 // ============================================================
@@ -129,6 +135,10 @@ const itemCount = (cid: string | null): number =>
   [...store.items.values()].filter(it => it.containerId === cid).length;
 const containerName = (cid: string | null): string =>
   cid ? (store.containers.get(cid)?.name ?? 'Unknown') : 'Unassigned';
+const categoryValueOptions = (group: string): string =>
+  (CATEGORIES[group as keyof CategoriesMap] || CATEGORIES.misc)
+    .map(v => `<option value="${v}">${v}</option>`)
+    .join('');
 
 function getApiKey(): string {
   return localStorage.getItem('packrat_anthropic_key') || '';
@@ -729,6 +739,8 @@ function applyItemFilters(): void {
     items = items.filter(
       it =>
         it.name.toLowerCase().includes(search) ||
+        (it.description || '').toLowerCase().includes(search) ||
+        (it.color || '').toLowerCase().includes(search) ||
         (it.tags || []).some(t => t.toLowerCase().includes(search)),
     );
   if (cFilter) items = items.filter(it => it.containerId === cFilter);
@@ -794,7 +806,7 @@ function renderItemRow(it: Item): string {
         ${it.photoPath ? `<img data-photo="${esc(it.photoPath)}" alt="${esc(it.name)}">` : `<span>${icon}</span>`}
       </div>
       <div class="item-info">
-        <div class="item-name">${esc(it.name)}</div>
+        <div class="item-name">${it.color ? `<span class="color-dot" style="background:${esc(it.color)}"></span> ` : ''}${esc(it.name)}</div>
         <div class="item-meta">
           <span class="tag">${esc(it.category?.value || '—')}</span>
           ${it.containerId ? `<span>${esc(containerName(it.containerId))}</span>` : '<span style="color:var(--text-tertiary)">Unassigned</span>'}
@@ -864,7 +876,9 @@ function renderItemView(itemId: string): void {
       }
     </div>
     <div class="detail-section">
+      ${it.description ? `<div class="detail-row"><span class="detail-label">Description</span><span class="detail-value">${esc(it.description)}</span></div>` : ''}
       <div class="detail-row"><span class="detail-label">Category</span><span class="detail-value">${esc(formatCat(it.category))}</span></div>
+      ${it.color ? `<div class="detail-row"><span class="detail-label">Color</span><span class="detail-value"><span class="color-dot" style="background:${esc(it.color)}"></span> ${esc(it.color)}</span></div>` : ''}
       <div class="detail-row"><span class="detail-label">Own</span><span class="detail-value">${it.quantityOwned || 1}</span></div>
       <div class="detail-row"><span class="detail-label">Pack default</span><span class="detail-value">${it.quantityPackDefault || 1}</span></div>
       <div class="detail-row"><span class="detail-label">Container</span><span class="detail-value">${esc(containerName(it.containerId))}</span></div>
@@ -925,25 +939,6 @@ function itemFormBody(it: Partial<Item> = {}): string {
       .join('');
 
   return `
-    <div class="form-group"><label>Name *</label>
-      <input type="text" id="f-name" value="${esc(it.name || '')}" placeholder="e.g. Black merino t-shirt" autocomplete="off"></div>
-    <div class="form-row">
-      <div class="form-group"><label>Group</label>
-        <select id="f-cat-group">${groupOpts}</select></div>
-      <div class="form-group"><label>Category</label>
-        <select id="f-cat-value">${valOpts(it.category?.group)}</select></div>
-    </div>
-    <div class="form-row">
-      <div class="form-group"><label>Own</label>
-        <input type="number" id="f-qty-own" value="${it.quantityOwned || 1}" min="0" inputmode="numeric" style="text-align:center"></div>
-      <div class="form-group"><label>Pack default</label>
-        <input type="number" id="f-qty-pack" value="${it.quantityPackDefault || 1}" min="0" inputmode="numeric" style="text-align:center"></div>
-    </div>
-    <div class="form-group"><label>Container</label><select id="f-container">${contOpts}</select></div>
-    <div class="form-group"><label>Tags</label>
-      <input type="text" id="f-tags" value="${esc((it.tags || []).join(', '))}" placeholder="merino, warm weather"></div>
-    <div class="form-group"><label>Notes</label>
-      <textarea id="f-notes" rows="2">${esc(it.notes || '')}</textarea></div>
     <div class="form-group"><label>Photo</label>
       <div class="photo-input-area">
         <div class="photo-preview" id="f-photo-preview">
@@ -955,7 +950,35 @@ function itemFormBody(it: Partial<Item> = {}): string {
           ${it.photoPath ? '<button type="button" class="btn-sm danger" id="btn-photo-remove">Remove</button>' : ''}
         </div>
       </div>
-    </div>`;
+      <div class="inference-status hidden" id="f-inference-status" aria-live="polite">Analyzing photo...</div>
+    </div>
+    <div class="form-group"><label>Name *</label>
+      <input type="text" id="f-name" value="${esc(it.name || '')}" placeholder="e.g. Black merino t-shirt" autocomplete="off"></div>
+    <div class="form-group"><label>Description</label>
+      <textarea id="f-description" rows="2" placeholder="AI-generated description...">${esc(it.description || '')}</textarea></div>
+    <div class="form-row">
+      <div class="form-group"><label>Group</label>
+        <select id="f-cat-group">${groupOpts}</select></div>
+      <div class="form-group"><label>Category</label>
+        <select id="f-cat-value">${valOpts(it.category?.group)}</select></div>
+    </div>
+    <div class="form-group"><label>Color</label>
+      <div class="color-input-row">
+        <div class="color-swatch" id="f-color-swatch" style="background:${esc(it.color || '#ccc')}"></div>
+        <input type="text" id="f-color" value="${esc(it.color || '')}" placeholder="#000000" maxlength="7">
+      </div>
+    </div>
+    <div class="form-row">
+      <div class="form-group"><label>Own</label>
+        <input type="number" id="f-qty-own" value="${it.quantityOwned || 1}" min="0" inputmode="numeric" style="text-align:center"></div>
+      <div class="form-group"><label>Pack default</label>
+        <input type="number" id="f-qty-pack" value="${it.quantityPackDefault || 1}" min="0" inputmode="numeric" style="text-align:center"></div>
+    </div>
+    <div class="form-group"><label>Container</label><select id="f-container">${contOpts}</select></div>
+    <div class="form-group"><label>Tags</label>
+      <input type="text" id="f-tags" value="${esc((it.tags || []).join(', '))}" placeholder="merino, warm weather"></div>
+    <div class="form-group"><label>Notes</label>
+      <textarea id="f-notes" rows="2">${esc(it.notes || '')}</textarea></div>`;
 }
 
 function openItemForm(itemId: string | null = null): void {
@@ -967,27 +990,150 @@ function openItemForm(itemId: string | null = null): void {
     if (img) lazyLoadPhoto(img, it.photoPath);
   }
 
+  // --- Touched-field tracking ---
+  const touchedFields = new Set<string>();
+  if (itemId && it.id) {
+    if (it.name) touchedFields.add('name');
+    if (it.description) touchedFields.add('description');
+    if (it.category?.group) touchedFields.add('category');
+    if (it.color) touchedFields.add('color');
+    if (it.tags?.length) touchedFields.add('tags');
+  }
+
+  const trackTouch = (id: string, field: string): void => {
+    const el = $maybe(id);
+    if (!el) return;
+    el.addEventListener('input', () => touchedFields.add(field));
+    el.addEventListener('change', () => touchedFields.add(field));
+  };
+  trackTouch('f-name', 'name');
+  trackTouch('f-description', 'description');
+  trackTouch('f-cat-group', 'category');
+  trackTouch('f-cat-value', 'category');
+  trackTouch('f-color', 'color');
+  trackTouch('f-tags', 'tags');
+
+  // Update color swatch on manual input
+  $maybe('f-color')?.addEventListener('input', () => {
+    const val = ($maybe('f-color') as HTMLInputElement | null)?.value || '';
+    const swatch = $maybe('f-color-swatch');
+    if (swatch) (swatch as HTMLElement).style.background = val || '#ccc';
+  });
+
   // Dynamic category value update
   $maybe('f-cat-group')?.addEventListener('change', e => {
     const sel = e.target as HTMLSelectElement;
     const valSel = $maybe('f-cat-value');
-    if (valSel)
-      valSel.innerHTML = (CATEGORIES[sel.value as keyof CategoriesMap] || CATEGORIES.misc)
-        .map(v => `<option value="${v}">${v}</option>`)
-        .join('');
+    if (valSel) valSel.innerHTML = categoryValueOptions(sel.value);
   });
 
-  setupSheetPhotoButtons(() => $('f-photo-preview'));
+  // --- Cancel inference on sheet close ---
+  setOnSheetClose(() => {
+    if (inferenceAbort) {
+      inferenceAbort.abort();
+      inferenceAbort = null;
+    }
+    if (previewObjectUrl) {
+      URL.revokeObjectURL(previewObjectUrl);
+      previewObjectUrl = null;
+    }
+  });
+
+  // --- Photo picker with inference ---
+  let previewObjectUrl: string | null = null;
+  setPhotoPickerCallback((file: File) => {
+    // Standard preview behavior
+    pendingPhoto.file = file;
+    if (previewObjectUrl) URL.revokeObjectURL(previewObjectUrl);
+    previewObjectUrl = URL.createObjectURL(file);
+    const prev = $maybe('f-photo-preview');
+    if (prev) {
+      prev.innerHTML = `<img src="${previewObjectUrl}" style="width:100%;height:100%;object-fit:cover;border-radius:8px;">`;
+    }
+
+    // Cancel any in-flight inference
+    if (inferenceAbort) inferenceAbort.abort();
+
+    const apiKey = getApiKey();
+    if (!apiKey) return;
+
+    const requestId = ++inferenceRequestId;
+    inferenceAbort = new AbortController();
+    const timeoutId = setTimeout(() => inferenceAbort?.abort(), 10_000);
+
+    const statusEl = $maybe('f-inference-status');
+    if (statusEl) statusEl.classList.remove('hidden');
+
+    inferFromPhoto(file, apiKey, inferenceAbort.signal)
+      .then(result => {
+        clearTimeout(timeoutId);
+        if (requestId !== inferenceRequestId) return;
+
+        if (!touchedFields.has('name') && result.name) {
+          const el = $maybe('f-name') as HTMLInputElement | null;
+          if (el) el.value = result.name;
+        }
+        if (!touchedFields.has('description') && result.description) {
+          const el = $maybe('f-description') as HTMLTextAreaElement | null;
+          if (el) el.value = result.description;
+        }
+        if (!touchedFields.has('category') && result.categoryGroup) {
+          const groupSel = $maybe('f-cat-group') as HTMLSelectElement | null;
+          if (groupSel) {
+            groupSel.value = result.categoryGroup;
+            const valSel = $maybe('f-cat-value') as HTMLSelectElement | null;
+            if (valSel) {
+              valSel.innerHTML = categoryValueOptions(result.categoryGroup!);
+              if (result.categoryValue) valSel.value = result.categoryValue;
+            }
+          }
+        }
+        if (!touchedFields.has('color') && result.color) {
+          const el = $maybe('f-color') as HTMLInputElement | null;
+          if (el) el.value = result.color;
+          const swatch = $maybe('f-color-swatch');
+          if (swatch) (swatch as HTMLElement).style.background = result.color;
+        }
+        if (!touchedFields.has('tags') && result.tags?.length) {
+          const el = $maybe('f-tags') as HTMLInputElement | null;
+          if (el && !el.value.trim()) el.value = result.tags.join(', ');
+        }
+      })
+      .catch(err => {
+        clearTimeout(timeoutId);
+        if (err instanceof DOMException && err.name === 'AbortError') return;
+        console.warn('Inference failed:', err);
+      })
+      .finally(() => {
+        if (requestId === inferenceRequestId) {
+          const statusEl = $maybe('f-inference-status');
+          if (statusEl) statusEl.classList.add('hidden');
+        }
+      });
+  });
+
   $maybe('btn-photo-camera')?.addEventListener('click', () => triggerPhotoPicker('camera'));
   $maybe('btn-photo-library')?.addEventListener('click', () => triggerPhotoPicker('library'));
   $maybe('btn-photo-remove')?.addEventListener('click', () => {
     pendingPhoto.file = 'REMOVE';
     pendingPhoto.oldPath = it.photoPath ?? null;
     $('f-photo-preview').innerHTML = iconForCategory(it.category?.group, it.category?.value);
+    if (inferenceAbort) {
+      inferenceAbort.abort();
+      inferenceAbort = null;
+    }
+    const statusEl = $maybe('f-inference-status');
+    if (statusEl) statusEl.classList.add('hidden');
   });
 }
 
 async function saveItemForm(existingId: string | null): Promise<void> {
+  // Cancel any in-flight inference
+  if (inferenceAbort) {
+    inferenceAbort.abort();
+    inferenceAbort = null;
+  }
+
   const name = $('f-name').value?.trim();
   if (!name) {
     showToast('Name is required', 'error');
@@ -1013,6 +1159,8 @@ async function saveItemForm(existingId: string | null): Promise<void> {
       quantityOwned: parseInt($('f-qty-own').value ?? '1') || 1,
       quantityPackDefault: parseInt($('f-qty-pack').value ?? '1') || 1,
       containerId: $('f-container').value || null,
+      color: ($maybe('f-color') as HTMLInputElement | null)?.value?.trim() || null,
+      description: ($maybe('f-description') as HTMLTextAreaElement | null)?.value?.trim() || null,
       tags,
       notes: $('f-notes').value?.trim() || '',
       updatedAt: serverTimestamp(),
@@ -2809,9 +2957,9 @@ async function addActivityFromInput(): Promise<void> {
 
 function downloadCSVTemplate() {
   const headers =
-    'name,category_group,category_value,quantity_owned,quantity_pack_default,container_name,tags,notes';
+    'name,category_group,category_value,quantity_owned,quantity_pack_default,container_name,tags,notes,description,color';
   const example =
-    '"Black merino t-shirt",clothing,tops,3,2,"Osprey carry-on","merino,warm weather",""';
+    '"Black merino t-shirt",clothing,tops,3,2,"Osprey carry-on","merino,warm weather","","Lightweight wool tee",#1A1A2E';
   const blob = new Blob([headers + '\n' + example], { type: 'text/csv' });
   const a = document.createElement('a');
   a.href = URL.createObjectURL(blob);
@@ -2919,6 +3067,8 @@ async function runCSVImport(rows: CSVRow[]): Promise<void> {
         photoPath: null,
         tags,
         notes: r['notes'] || '',
+        description: r['description']?.trim() || null,
+        color: r['color']?.trim() || null,
         createdAt: serverTimestamp(),
         updatedAt: serverTimestamp(),
       };
