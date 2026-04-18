@@ -123,10 +123,11 @@ import { downsampleForInference, callInferenceAPI } from './inference';
 // ============================================================
 let currentItemFilter = '';
 let currentColorFilter = '';
-type ItemsGrouping = 'category' | 'container';
+type ItemsGrouping = 'category' | 'subcategory' | 'container';
 const ITEMS_GROUPING_KEY = 'packrat_items_grouping';
+const storedGrouping = localStorage.getItem(ITEMS_GROUPING_KEY);
 let itemsGrouping: ItemsGrouping =
-  localStorage.getItem(ITEMS_GROUPING_KEY) === 'container' ? 'container' : 'category';
+  storedGrouping === 'container' || storedGrouping === 'subcategory' ? storedGrouping : 'category';
 type ItemsViewMode = 'list' | 'grid';
 const ITEMS_VIEW_KEY = 'packrat_items_view';
 let itemsViewMode: ItemsViewMode =
@@ -820,9 +821,16 @@ function applyItemFilters(): void {
   const isGrid = itemsViewMode === 'grid';
   content.closest('.items-scroll')?.classList.toggle('grid-mode', isGrid);
 
-  // Group by selected mode (category.group or container)
-  const groupKeyOf = (it: Item): string =>
-    itemsGrouping === 'container' ? containerName(it.containerId) : it.category?.group || 'misc';
+  // Group by selected mode (category.group, subcategory, or container)
+  const groupKeyOf = (it: Item): string => {
+    if (itemsGrouping === 'container') return containerName(it.containerId);
+    if (itemsGrouping === 'subcategory') {
+      const g = it.category?.group || 'misc';
+      const v = it.category?.value || 'other';
+      return `${g}/${v}`;
+    }
+    return it.category?.group || 'misc';
+  };
 
   const groups: Record<string, Item[]> = {};
   items.forEach(it => {
@@ -832,10 +840,16 @@ function applyItemFilters(): void {
   });
 
   // Stable group ordering
+  const cats = Object.keys(CATEGORIES);
   const sortedKeys = Object.keys(groups).sort((a, b) => {
     if (itemsGrouping === 'category') {
-      const cats = Object.keys(CATEGORIES);
       return cats.indexOf(a) - cats.indexOf(b);
+    }
+    if (itemsGrouping === 'subcategory') {
+      const [aGrp, aSub] = a.split('/');
+      const [bGrp, bSub] = b.split('/');
+      const gi = cats.indexOf(aGrp!) - cats.indexOf(bGrp!);
+      return gi !== 0 ? gi : (aSub || '').localeCompare(bSub || '');
     }
     // Container mode: alphabetical, Unassigned last
     if (a === 'Unassigned') return 1;
@@ -843,8 +857,14 @@ function applyItemFilters(): void {
     return a.localeCompare(b);
   });
 
-  const labelFor = (k: string): string =>
-    itemsGrouping === 'category' ? k.charAt(0).toUpperCase() + k.slice(1) : k;
+  const labelFor = (k: string): string => {
+    if (itemsGrouping === 'subcategory') {
+      const v = k.split('/')[1] || k;
+      return v.charAt(0).toUpperCase() + v.slice(1).replace(/-/g, ' ');
+    }
+    if (itemsGrouping === 'category') return k.charAt(0).toUpperCase() + k.slice(1);
+    return k;
+  };
 
   const renderFn = isGrid ? renderItemGridCell : renderItemRow;
   const wrapClass = isGrid ? 'item-grid' : 'stack';
