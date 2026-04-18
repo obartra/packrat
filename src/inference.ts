@@ -22,7 +22,12 @@ export function buildInferenceSchema(): object {
       description: { type: 'string' },
       categoryGroup: { anyOf: [{ type: 'string', enum: groups }, { type: 'null' }] },
       categoryValue: { anyOf: [{ type: 'string', enum: allValues }, { type: 'null' }] },
-      color: { anyOf: [{ type: 'string', description: 'Hex color of the item, e.g. #3B5998' }, { type: 'null' }] },
+      color: {
+        anyOf: [
+          { type: 'string', description: 'Hex color of the item, e.g. #3B5998' },
+          { type: 'null' },
+        ],
+      },
       tags: { type: 'array', items: { type: 'string' } },
     },
     required: ['name', 'description', 'categoryGroup', 'categoryValue', 'color', 'tags'],
