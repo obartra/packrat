@@ -291,22 +291,16 @@
   align-items: center;
   gap: 6px;
   padding: 6px 12px;
-  border: 2px solid var(--border);
+  border: 2px solid;
   border-radius: 20px;
-  background: var(--surface);
   cursor: pointer;
   font-size: 12px;
-  color: var(--text-secondary);
-  transition:
-    border-color var(--transition),
-    color var(--transition);
+  transition: opacity 0.15s ease;
 }
 .theme-opt:hover {
-  border-color: var(--text-tertiary);
+  opacity: 0.85;
 }
 .theme-opt.active {
-  border-color: var(--accent);
-  color: var(--accent);
   font-weight: 600;
 }
 .theme-dot {
@@ -314,11 +308,8 @@
   width: 14px;
   height: 14px;
   border-radius: 50%;
-  border: 1px solid var(--border);
+  border: 1px solid;
   flex-shrink: 0;
-}
-.theme-dot--dark {
-  border-color: rgba(0, 0, 0, 0.15);
 }
 
 /* Thumbnail background picker (Settings) */

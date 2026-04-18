@@ -3473,9 +3473,10 @@ function renderSettingsView() {
           ${Object.entries(THEMES)
             .filter(([, t]) => !t.dark)
             .map(
-              ([key, { label, accent }]) =>
-                `<button class="theme-opt${getTheme() === key ? ' active' : ''}" data-theme="${key}" title="${label}">
-                  <span class="theme-dot" style="background:${accent}"></span>
+              ([key, { label, accent, vars }]) =>
+                `<button class="theme-opt${getTheme() === key ? ' active' : ''}" data-theme="${key}" title="${label}"
+                  style="background:${vars['--surface']};color:${vars['--text-secondary']};border-color:${getTheme() === key ? vars['--accent'] : vars['--border']}">
+                  <span class="theme-dot" style="background:${accent};border-color:${vars['--border']}"></span>
                   <span>${label}</span>
                 </button>`,
             )
@@ -3484,9 +3485,10 @@ function renderSettingsView() {
           ${Object.entries(THEMES)
             .filter(([, t]) => t.dark)
             .map(
-              ([key, { label, accent }]) =>
-                `<button class="theme-opt${getTheme() === key ? ' active' : ''}" data-theme="${key}" title="${label}">
-                  <span class="theme-dot theme-dot--dark" style="background:${accent}"></span>
+              ([key, { label, accent, vars }]) =>
+                `<button class="theme-opt${getTheme() === key ? ' active' : ''}" data-theme="${key}" title="${label}"
+                  style="background:${vars['--surface']};color:${vars['--text-secondary']};border-color:${getTheme() === key ? vars['--accent'] : vars['--border']}">
+                  <span class="theme-dot" style="background:${accent};border-color:${vars['--border']}"></span>
                   <span>${label}</span>
                 </button>`,
             )
