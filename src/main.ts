@@ -3493,6 +3493,17 @@ function renderSettingsView() {
                 </button>`,
             )
             .join('')}
+          <div class="theme-section-label">Dark</div>
+          ${Object.entries(THEMES)
+            .filter(([, t]) => t.dark)
+            .map(
+              ([key, { label, accent }]) =>
+                `<button class="theme-opt${getTheme() === key ? ' active' : ''}" data-theme="${key}" title="${label}">
+                  <span class="theme-dot theme-dot--dark" style="background:${accent}"></span>
+                  <span>${label}</span>
+                </button>`,
+            )
+            .join('')}
         </div>
       </div>
       <div class="settings-row" style="flex-direction:column;align-items:flex-start;gap:8px">
