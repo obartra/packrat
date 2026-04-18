@@ -98,6 +98,7 @@ export async function callInferenceAPI(
       output_config: {
         format: {
           type: 'json_schema',
+          name: 'item_identification',
           schema: (_schema ??= buildInferenceSchema()),
         },
       },
