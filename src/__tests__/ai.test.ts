@@ -137,6 +137,46 @@ describe('inventoryFromItems', () => {
     expect(inv[1]!.quantityOwned).toBe(1);
     expect(inv[1]!.quantityPackDefault).toBe(1);
   });
+
+  it('includes description when present on item', () => {
+    const withDesc: Item[] = [{ ...items[0]!, description: 'Cotton blend, lightweight' }];
+    const inv = inventoryFromItems(
+      withDesc,
+      () => 'C1',
+      cat => `${cat.group}/${cat.value}`,
+    );
+    expect(inv[0]!.description).toBe('Cotton blend, lightweight');
+  });
+
+  it('omits description when null or undefined', () => {
+    const inv = inventoryFromItems(
+      items,
+      () => 'C1',
+      cat => `${cat.group}/${cat.value}`,
+    );
+    expect('description' in inv[0]!).toBe(false);
+    expect('description' in inv[1]!).toBe(false);
+  });
+
+  it('includes color when present on item', () => {
+    const withColor: Item[] = [{ ...items[0]!, color: '#3B5998' }];
+    const inv = inventoryFromItems(
+      withColor,
+      () => 'C1',
+      cat => `${cat.group}/${cat.value}`,
+    );
+    expect(inv[0]!.color).toBe('#3B5998');
+  });
+
+  it('omits color when null or undefined', () => {
+    const inv = inventoryFromItems(
+      items,
+      () => 'C1',
+      cat => `${cat.group}/${cat.value}`,
+    );
+    expect('color' in inv[0]!).toBe(false);
+    expect('color' in inv[1]!).toBe(false);
+  });
 });
 
 describe('parseAIResponse', () => {

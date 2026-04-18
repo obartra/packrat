@@ -127,15 +127,17 @@ No secrets. No API keys.
 
 ### 2.4 Category Taxonomy
 
-Stored as `{ group, value }`. UI groups by `group`, labels by `value`.
+Stored as `{ group, value }`. UI groups by `group`, labels by `value`. Source of truth: `src/constants.ts`.
 
 ```
 clothing    → tops, bottoms, underwear, socks, outerwear, swimwear, activewear, shoes, accessories
-toiletries  → skincare, haircare, shaving, oral-care, medication, supplements, sunscreen, hygiene
+toiletries  → skincare, shaving, oral-care, medication, supplements, sunscreen, hygiene, fragrance, first-aid
 electronics → phone-tablet, cables, adapters, audio, camera, computer, accessories
-documents   → passport, cards, insurance, cash
-gear        → diving, capoeira, outdoor, sports, fitness
+documents   → passport, identification, certificates, cards, insurance, medical, financial, legal, visas, cash
+gear        → diving, outdoor, workout
 media       → books, notebooks, art-supplies
+travel      → comfort, organization, security, other
+food        → snacks, beverages, baby-food, other
 misc        → other
 ```
 

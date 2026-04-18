@@ -577,6 +577,55 @@
   gap: 6px;
 }
 
+/* Inference status */
+.inference-status {
+  font-size: 12px;
+  color: var(--text-secondary);
+  padding: 6px 0 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.inference-status::before {
+  content: '';
+  width: 14px;
+  height: 14px;
+  border: 2px solid var(--accent);
+  border-top-color: transparent;
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+  flex-shrink: 0;
+}
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* Color dot (item rows + detail) */
+.color-dot {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  border: 1px solid var(--border);
+  vertical-align: middle;
+}
+
+/* Color input row (form) */
+.color-input-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.color-swatch {
+  width: 28px;
+  height: 28px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  flex-shrink: 0;
+}
+
 .toggle-row {
   display: flex;
   align-items: center;

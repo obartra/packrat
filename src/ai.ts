@@ -16,6 +16,8 @@ export interface InventoryItem {
   id: string;
   name: string;
   category: string;
+  description?: string;
+  color?: string;
   quantityOwned: number;
   quantityPackDefault: number;
   container: string;
@@ -59,6 +61,8 @@ export function inventoryFromItems(
     id: it.id,
     name: it.name,
     category: formatCategory(it.category),
+    ...(it.description ? { description: it.description } : {}),
+    ...(it.color ? { color: it.color } : {}),
     quantityOwned: it.quantityOwned || 1,
     quantityPackDefault: it.quantityPackDefault || 1,
     container: containerNameById(it.containerId),

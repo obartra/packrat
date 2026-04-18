@@ -1,6 +1,7 @@
 import { ref as storageRef, uploadBytes, getDownloadURL, deleteObject } from 'firebase/storage';
 import { storage } from './firebase';
 import { $ } from './utils';
+import { resizeToCanvas } from './images';
 
 export type PendingPhotoValue = File | 'REMOVE' | null;
 
@@ -25,62 +26,27 @@ export const photoUrlCache = new Map<string, string>();
  * Returns the download URL.
  */
 export async function resizeAndUpload(file: File, path: string): Promise<string> {
+  const canvas = await resizeToCanvas(file, 1400);
   return new Promise<string>((resolve, reject) => {
-    const img = new Image();
-    const reader = new FileReader();
-    reader.onload = e => {
-      const result = e.target?.result;
-      if (typeof result !== 'string') {
-        reject(new Error('read failed'));
-        return;
-      }
-      img.src = result;
-      img.onload = () => {
-        const MAX = 1400;
-        let w = img.naturalWidth;
-        let h = img.naturalHeight;
-        if (w > MAX || h > MAX) {
-          if (w >= h) {
-            h = Math.round((h * MAX) / w);
-            w = MAX;
-          } else {
-            w = Math.round((w * MAX) / h);
-            h = MAX;
-          }
-        }
-        const canvas = document.createElement('canvas');
-        canvas.width = w;
-        canvas.height = h;
-        const ctx = canvas.getContext('2d');
-        if (!ctx) {
-          reject(new Error('canvas 2d unsupported'));
+    canvas.toBlob(
+      async blob => {
+        if (!blob) {
+          reject(new Error('blob creation failed'));
           return;
         }
-        ctx.drawImage(img, 0, 0, w, h);
-        canvas.toBlob(
-          async blob => {
-            if (!blob) {
-              reject(new Error('blob creation failed'));
-              return;
-            }
-            try {
-              const sRef = storageRef(storage, path);
-              await uploadBytes(sRef, blob, { contentType: 'image/jpeg' });
-              const url = await getDownloadURL(sRef);
-              photoUrlCache.set(path, url);
-              resolve(url);
-            } catch (err) {
-              reject(err);
-            }
-          },
-          'image/jpeg',
-          0.82,
-        );
-      };
-      img.onerror = () => reject(new Error('image load failed'));
-    };
-    reader.onerror = () => reject(new Error('file read failed'));
-    reader.readAsDataURL(file);
+        try {
+          const sRef = storageRef(storage, path);
+          await uploadBytes(sRef, blob, { contentType: 'image/jpeg' });
+          const url = await getDownloadURL(sRef);
+          photoUrlCache.set(path, url);
+          resolve(url);
+        } catch (err) {
+          reject(err);
+        }
+      },
+      'image/jpeg',
+      0.82,
+    );
   });
 }
 
@@ -225,12 +191,19 @@ async function openWebcamCapture(): Promise<void> {
 
 /** Register a callback for the next file selected via camera or library. */
 export function setupSheetPhotoButtons(getPreviewEl: () => HTMLElement | null): void {
+  let prevUrl: string | null = null;
   photoPickerCallback = file => {
     pendingPhoto.file = file;
-    const url = URL.createObjectURL(file);
+    if (prevUrl) URL.revokeObjectURL(prevUrl);
+    prevUrl = URL.createObjectURL(file);
     const prev = getPreviewEl();
     if (prev) {
-      prev.innerHTML = `<img src="${url}" style="width:100%;height:100%;object-fit:cover;border-radius:8px;">`;
+      prev.innerHTML = `<img src="${prevUrl}" style="width:100%;height:100%;object-fit:cover;border-radius:8px;">`;
     }
   };
+}
+
+/** Set a custom photo picker callback (e.g. for inference + preview). */
+export function setPhotoPickerCallback(cb: PhotoPickerCallback | null): void {
+  photoPickerCallback = cb;
 }

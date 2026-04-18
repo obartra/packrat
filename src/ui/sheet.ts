@@ -4,6 +4,12 @@ import { clearPendingPhoto, pendingPhoto } from '../photos';
 export type SheetSaveFn = () => void | Promise<void>;
 
 let currentSheetSave: SheetSaveFn | null = null;
+let onSheetClose: (() => void) | null = null;
+
+/** Register a callback to run when the sheet closes (e.g. cancel inference). */
+export function setOnSheetClose(cb: (() => void) | null): void {
+  onSheetClose = cb;
+}
 
 /** Open the slide-up sheet with a title, body HTML, and save handler. */
 export function openSheet(title: string, bodyHTML: string, onSave: SheetSaveFn): void {
@@ -18,6 +24,10 @@ export function openSheet(title: string, bodyHTML: string, onSave: SheetSaveFn):
 }
 
 export function closeSheet(): void {
+  if (onSheetClose) {
+    onSheetClose();
+    onSheetClose = null;
+  }
   const s = $('sheet');
   s.classList.remove('open');
   setTimeout(() => {

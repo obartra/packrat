@@ -1,6 +1,6 @@
 import { initializeApp, type FirebaseOptions } from 'firebase/app';
 import { getAuth } from 'firebase/auth';
-import { getFirestore } from 'firebase/firestore';
+import { initializeFirestore } from 'firebase/firestore';
 import { getStorage } from 'firebase/storage';
 
 const REQUIRED_ENV = [
@@ -34,5 +34,11 @@ function readEnv(): FirebaseOptions {
 const firebaseApp = initializeApp(readEnv());
 
 export const auth = getAuth(firebaseApp);
-export const db = getFirestore(firebaseApp);
+// Auto-detect long-polling: Firestore's default WebChannel transport can
+// silently fail on restrictive mobile networks (some carrier proxies,
+// hotel/corp Wi-Fi), which left users stuck with the login button on "…".
+// This falls back to long-polling when WebChannel isn't working.
+export const db = initializeFirestore(firebaseApp, {
+  experimentalAutoDetectLongPolling: true,
+});
 export const storage = getStorage(firebaseApp);
