@@ -1107,7 +1107,8 @@ function openItemForm(itemId: string | null = null): void {
         clearTimeout(timeoutId);
         if (err instanceof DOMException && err.name === 'AbortError') return;
         console.warn('Inference failed:', err);
-        showToast('Photo analysis failed — fill fields manually', 'error');
+        const detail = err instanceof Error ? err.message : String(err);
+        showToast(`Photo analysis failed: ${detail}`, 'error');
       })
       .finally(() => {
         if (requestId === inferenceRequestId) {
