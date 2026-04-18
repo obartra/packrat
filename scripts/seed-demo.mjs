@@ -373,7 +373,7 @@ if (!dryRun) {
   await beachTrip.set({
     name: 'Cancún Beach Getaway',
     destination: 'Cancún, Mexico',
-    location: { lat: 21.1619, lng: -86.8515 },
+    location: { latitude: 21.1619, longitude: -86.8515, name: 'Cancún', country: 'Mexico' },
     startMonth: 6, // July
     startYear: 2026,
     durationCount: 1,
@@ -396,7 +396,7 @@ if (!dryRun) {
   await bizTrip.set({
     name: 'NYC Business Trip',
     destination: 'New York, NY',
-    location: { lat: 40.7128, lng: -74.006 },
+    location: { latitude: 40.7128, longitude: -74.006, name: 'New York', country: 'United States' },
     startMonth: 9, // October
     startYear: 2026,
     durationCount: 3,

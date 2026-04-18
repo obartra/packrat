@@ -3267,7 +3267,7 @@ async function saveEditedTrip(): Promise<void> {
 //  SETTINGS
 // ============================================================
 
-async function deleteAllUserData(alsoDeleteAccount: boolean): Promise<void> {
+async function deleteAllUserData(): Promise<void> {
   try {
     showToast('Deleting data…', 'success', 10_000);
     teardownListeners();
@@ -3315,13 +3315,10 @@ async function deleteAllUserData(alsoDeleteAccount: boolean): Promise<void> {
 
     clearStore();
 
-    if (alsoDeleteAccount && auth.currentUser) {
+    if (auth.currentUser) {
       await deleteUser(auth.currentUser);
-      showToast('Account deleted', 'success');
-    } else {
-      await signOut(auth);
-      showToast('All data deleted', 'success');
     }
+    showToast('Account deleted', 'success');
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     if (msg.includes('requires-recent-login')) {
@@ -3461,14 +3458,6 @@ function renderSettingsView() {
     ${
       !demo
         ? `<div class="settings-group danger-zone">
-      <div class="settings-group-title">Danger Zone</div>
-      <div class="settings-row" style="flex-direction:column;align-items:flex-start;gap:8px">
-        <div>
-          <div class="settings-row-label">Delete all data</div>
-          <div class="settings-row-sub">Permanently delete all containers, items, lists, trips, and photos. Your account will remain.</div>
-        </div>
-        <button class="btn-danger" id="btn-delete-data">Delete All Data</button>
-      </div>
       <div class="settings-row" style="flex-direction:column;align-items:flex-start;gap:8px">
         <div>
           <div class="settings-row-label">Delete account</div>
@@ -3574,18 +3563,10 @@ function renderSettingsView() {
     $('btn-confirm-ok').className = 'btn-ghost';
   });
 
-  $('btn-delete-data')?.addEventListener('click', () => {
-    showConfirm(
-      'Delete ALL your data? This will permanently remove all containers, items, lists, trips, and photos. This cannot be undone.',
-      () => void deleteAllUserData(false),
-      'Delete Everything',
-    );
-  });
-
   $('btn-delete-account')?.addEventListener('click', () => {
     showConfirm(
       'Delete your account and ALL data? This is permanent and cannot be undone.',
-      () => void deleteAllUserData(true),
+      () => void deleteAllUserData(),
       'Delete Account',
     );
   });
