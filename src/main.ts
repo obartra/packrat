@@ -123,10 +123,11 @@ import { downsampleForInference, callInferenceAPI } from './inference';
 // ============================================================
 let currentItemFilter = '';
 let currentColorFilter = '';
-type ItemsGrouping = 'category' | 'container';
+type ItemsGrouping = 'category' | 'subcategory' | 'container';
 const ITEMS_GROUPING_KEY = 'packrat_items_grouping';
+const storedGrouping = localStorage.getItem(ITEMS_GROUPING_KEY);
 let itemsGrouping: ItemsGrouping =
-  localStorage.getItem(ITEMS_GROUPING_KEY) === 'container' ? 'container' : 'category';
+  storedGrouping === 'container' || storedGrouping === 'subcategory' ? storedGrouping : 'category';
 type ItemsViewMode = 'list' | 'grid';
 const ITEMS_VIEW_KEY = 'packrat_items_view';
 let itemsViewMode: ItemsViewMode =
@@ -164,30 +165,14 @@ const LAST_CONTAINER_KEY = 'packrat_last_container';
 
 const THUMB_BG_KEY = 'packrat_thumb_bg';
 const THUMB_BACKGROUNDS: Record<string, { label: string; css: string }> = {
-  wood: {
-    label: 'Wood',
-    css: 'linear-gradient(135deg, #deb887 0%, #c8a87a 25%, #d4a574 50%, #c2956b 75%, #deb887 100%)',
-  },
-  'dark-wood': {
-    label: 'Dark wood',
-    css: 'linear-gradient(135deg, #5c3d2e 0%, #6b4735 25%, #5a3828 50%, #6b4735 75%, #5c3d2e 100%)',
-  },
-  marble: {
-    label: 'Marble',
-    css: 'linear-gradient(135deg, #f0ece4 0%, #e8e0d4 30%, #f2ede5 50%, #e5ddd0 70%, #f0ece4 100%)',
-  },
-  metal: {
-    label: 'Metal',
-    css: 'linear-gradient(135deg, #c0c0c0 0%, #d8d8d8 25%, #b8b8b8 50%, #d0d0d0 75%, #c0c0c0 100%)',
-  },
-  slate: {
-    label: 'Slate',
-    css: 'linear-gradient(135deg, #4a5568 0%, #576475 25%, #3d4a5c 50%, #576475 75%, #4a5568 100%)',
-  },
+  wood: { label: 'Wood', css: 'url(/textures/wood.jpg) center/cover' },
+  marble: { label: 'Marble', css: 'url(/textures/marble.jpg) center/cover' },
+  metal: { label: 'Metal', css: 'url(/textures/metal.jpg) center/cover' },
   none: { label: 'None', css: 'var(--border-light)' },
 };
 function getThumbBg(): string {
-  return localStorage.getItem(THUMB_BG_KEY) || 'wood';
+  const v = localStorage.getItem(THUMB_BG_KEY) || 'wood';
+  return v in THUMB_BACKGROUNDS ? v : 'wood';
 }
 function getThumbBgCss(): string {
   return THUMB_BACKGROUNDS[getThumbBg()]?.css ?? THUMB_BACKGROUNDS['wood']!.css;
@@ -818,10 +803,18 @@ function applyItemFilters(): void {
   emptyEl.classList.add('hidden');
 
   const isGrid = itemsViewMode === 'grid';
+  content.closest('.items-scroll')?.classList.toggle('grid-mode', isGrid);
 
-  // Group by selected mode (category.group or container)
-  const groupKeyOf = (it: Item): string =>
-    itemsGrouping === 'container' ? containerName(it.containerId) : it.category?.group || 'misc';
+  // Group by selected mode (category.group, subcategory, or container)
+  const groupKeyOf = (it: Item): string => {
+    if (itemsGrouping === 'container') return containerName(it.containerId);
+    if (itemsGrouping === 'subcategory') {
+      const g = it.category?.group || 'misc';
+      const v = it.category?.value || 'other';
+      return `${g}/${v}`;
+    }
+    return it.category?.group || 'misc';
+  };
 
   const groups: Record<string, Item[]> = {};
   items.forEach(it => {
@@ -831,10 +824,16 @@ function applyItemFilters(): void {
   });
 
   // Stable group ordering
+  const cats = Object.keys(CATEGORIES);
   const sortedKeys = Object.keys(groups).sort((a, b) => {
     if (itemsGrouping === 'category') {
-      const cats = Object.keys(CATEGORIES);
       return cats.indexOf(a) - cats.indexOf(b);
+    }
+    if (itemsGrouping === 'subcategory') {
+      const [aGrp, aSub] = a.split('/');
+      const [bGrp, bSub] = b.split('/');
+      const gi = cats.indexOf(aGrp!) - cats.indexOf(bGrp!);
+      return gi !== 0 ? gi : (aSub || '').localeCompare(bSub || '');
     }
     // Container mode: alphabetical, Unassigned last
     if (a === 'Unassigned') return 1;
@@ -842,8 +841,14 @@ function applyItemFilters(): void {
     return a.localeCompare(b);
   });
 
-  const labelFor = (k: string): string =>
-    itemsGrouping === 'category' ? k.charAt(0).toUpperCase() + k.slice(1) : k;
+  const labelFor = (k: string): string => {
+    if (itemsGrouping === 'subcategory') {
+      const v = k.split('/')[1] || k;
+      return v.charAt(0).toUpperCase() + v.slice(1).replace(/-/g, ' ');
+    }
+    if (itemsGrouping === 'category') return k.charAt(0).toUpperCase() + k.slice(1);
+    return k;
+  };
 
   const renderFn = isGrid ? renderItemGridCell : renderItemRow;
   const wrapClass = isGrid ? 'item-grid' : 'stack';
@@ -895,7 +900,6 @@ function renderItemGridCell(it: Item): string {
       <div class="item-grid-photo"${thumbBg ? ` style="${thumbBg}"` : ''}>
         ${thumbSrc ? `<img src="${thumbSrc}" alt="${esc(it.name)}"${useNobg ? ' class="nobg-thumb"' : ''}>` : it.photoPath ? `<img data-photo="${esc(it.photoPath)}" alt="${esc(it.name)}">` : `<span>${icon}</span>`}
       </div>
-      <div class="item-grid-name">${esc(it.name)}</div>
     </div>`;
 }
 
@@ -928,7 +932,7 @@ function renderColorChips(): void {
 const VIEW_ICON_GRID =
   '<rect x="1" y="1" width="6" height="6" rx="1"/><rect x="11" y="1" width="6" height="6" rx="1"/><rect x="1" y="11" width="6" height="6" rx="1"/><rect x="11" y="11" width="6" height="6" rx="1"/>';
 const VIEW_ICON_LIST =
-  '<line x1="1" y1="3" x2="17" y2="3"/><line x1="1" y1="9" x2="17" y2="9"/><line x1="1" y1="15" x2="17" y2="15"/>';
+  '<circle cx="2" cy="3" r="1.5" fill="currentColor" stroke="none"/><line x1="6" y1="3" x2="17" y2="3"/><circle cx="2" cy="9" r="1.5" fill="currentColor" stroke="none"/><line x1="6" y1="9" x2="17" y2="9"/><circle cx="2" cy="15" r="1.5" fill="currentColor" stroke="none"/><line x1="6" y1="15" x2="17" y2="15"/>';
 
 function updateViewToggleIcon(): void {
   const svg = $maybe('view-toggle-icon');
