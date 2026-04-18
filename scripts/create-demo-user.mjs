@@ -46,7 +46,7 @@ let user;
 try {
   user = await auth.getUserByEmail(DEMO_EMAIL);
   console.log(`Demo user already exists: ${user.uid}`);
-} catch (_) {
+} catch {
   user = await auth.createUser({
     email: DEMO_EMAIL,
     password: DEMO_PASSWORD,

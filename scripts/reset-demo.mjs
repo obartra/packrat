@@ -49,7 +49,7 @@ let demoUid;
 try {
   const user = await auth.getUserByEmail(DEMO_EMAIL);
   demoUid = user.uid;
-} catch (_) {
+} catch {
   console.error(`Demo user ${DEMO_EMAIL} not found. Run create-demo-user.mjs first.`);
   process.exit(1);
 }
@@ -87,7 +87,7 @@ try {
     await file.delete();
   }
   if (files.length) console.log(`  Deleted ${files.length} storage files`);
-} catch (_) {
+} catch {
   // Storage may be empty
 }
 
