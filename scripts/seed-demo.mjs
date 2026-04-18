@@ -92,20 +92,25 @@ async function makeContainerThumb(buffer) {
   return makeThumb(buffer, 400);
 }
 
-async function makeNobgThumb(localPath) {
-  const buf = readFileSync(localPath);
-  // These demo images already have near-white backgrounds — use the PNG directly
-  const thumbBuf = await sharp(buf)
+async function removeAndUploadNobg(jpegBuffer, storagePath) {
+  const { removeBackground } = await import('@imgly/background-removal-node');
+  const blob = new Blob([jpegBuffer], { type: 'image/jpeg' });
+  const resultBlob = await removeBackground(blob, {
+    output: { format: 'image/png', quality: 1 },
+  });
+  const resultBuffer = Buffer.from(await resultBlob.arrayBuffer());
+
+  const nobgPath = storagePath.replace(/\.jpg$/, '_nobg.png');
+  const file = storage.file(nobgPath);
+  await file.save(resultBuffer, { contentType: 'image/png' });
+
+  const nobgThumbBuf = await sharp(resultBuffer)
     .resize(100, 100, { fit: 'inside' })
     .png()
     .toBuffer();
-  return `data:image/png;base64,${thumbBuf.toString('base64')}`;
-}
+  const nobgThumb = `data:image/png;base64,${nobgThumbBuf.toString('base64')}`;
 
-async function uploadNobgPng(localPath, storagePath) {
-  const buf = readFileSync(localPath);
-  const file = storage.file(storagePath);
-  await file.save(buf, { contentType: 'image/png' });
+  return { nobgPath, nobgThumb };
 }
 
 // ---------- data definitions ----------
@@ -283,7 +288,6 @@ for (const item of items) {
   const filePath = resolve(demoDir, item.file);
   const docRef = db.collection(`${userPath}/items`).doc();
   const photoPath = `${userPath}/items/${docRef.id}.jpg`;
-  const nobgPath = `${userPath}/items/${docRef.id}_nobg.png`;
   const containerId = containerIds[item.container] || null;
 
   console.log(`  + item: ${item.data.name} → ${containers[item.container].data.name} (${docRef.id})`);
@@ -291,8 +295,9 @@ for (const item of items) {
   if (!dryRun) {
     const jpegBuf = await uploadPhoto(filePath, photoPath);
     const thumb = await makeThumb(jpegBuf, 100);
-    await uploadNobgPng(filePath, nobgPath);
-    const nobgThumb = await makeNobgThumb(filePath);
+
+    console.log(`    removing background...`);
+    const { nobgPath, nobgThumb } = await removeAndUploadNobg(jpegBuf, photoPath);
 
     await docRef.set({
       ...item.data,
