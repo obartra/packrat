@@ -689,7 +689,9 @@ function renderContainersView() {
     .forEach(img => lazyLoadPhoto(img, img.dataset['photo']));
 }
 
-$('btn-add-container').addEventListener('click', () => { if (!guardDemo()) openContainerForm(); });
+$('btn-add-container').addEventListener('click', () => {
+  if (!guardDemo()) openContainerForm();
+});
 
 // ============================================================
 //  CONTAINERS — open/save form
@@ -1128,7 +1130,9 @@ function updateViewToggleIcon(): void {
   if (svg) svg.innerHTML = itemsViewMode === 'list' ? VIEW_ICON_GRID : VIEW_ICON_LIST;
 }
 
-$('btn-add-item').addEventListener('click', () => { if (!guardDemo()) openItemForm(); });
+$('btn-add-item').addEventListener('click', () => {
+  if (!guardDemo()) openItemForm();
+});
 
 $('items-search').addEventListener('input', applyItemFilters);
 $('items-filter-container').addEventListener('change', applyItemFilters);
@@ -1746,7 +1750,9 @@ function renderListsView() {
     .join('');
 }
 
-$('btn-add-list').addEventListener('click', () => { if (!guardDemo()) openListForm(); });
+$('btn-add-list').addEventListener('click', () => {
+  if (!guardDemo()) openListForm();
+});
 
 function openListForm(listId: string | null = null): void {
   const l: Partial<List> = listId ? (store.lists.get(listId) ?? {}) : {};
@@ -3319,7 +3325,11 @@ async function deleteAllUserData(alsoDeleteAccount: boolean): Promise<void> {
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     if (msg.includes('requires-recent-login')) {
-      showToast('Please sign out, sign back in, and try again (security re-authentication required)', 'error', 6000);
+      showToast(
+        'Please sign out, sign back in, and try again (security re-authentication required)',
+        'error',
+        6000,
+      );
     } else {
       showToast('Error deleting data: ' + msg, 'error', 4000);
     }
@@ -3330,14 +3340,20 @@ function renderSettingsView() {
   const key = getApiKey();
   const demo = isDemoUser();
   $('settings-content').innerHTML = `
-    ${demo ? `<div class="settings-group" style="background:var(--accent-light);border:1px solid var(--accent)">
+    ${
+      demo
+        ? `<div class="settings-group" style="background:var(--accent-light);border:1px solid var(--accent)">
       <div class="settings-row" style="flex-direction:column;align-items:flex-start;gap:4px">
         <div class="settings-row-label" style="color:var(--accent)">Demo Account</div>
         <div class="settings-row-sub">You're browsing a read-only demo. Sign up to create your own inventory!</div>
       </div>
-    </div>` : ''}
+    </div>`
+        : ''
+    }
 
-    ${!demo ? `<div class="settings-group">
+    ${
+      !demo
+        ? `<div class="settings-group">
       <div class="settings-group-title">AI</div>
       <div class="settings-row" style="flex-direction:column;align-items:flex-start;gap:8px">
         <div class="settings-row-label">Anthropic API Key</div>
@@ -3354,7 +3370,9 @@ function renderSettingsView() {
           <div class="settings-row-sub" style="font-family:monospace;font-size:12px">${AI_MODEL}</div>
         </div>
       </div>
-    </div>` : ''}
+    </div>`
+        : ''
+    }
 
     <div class="settings-group">
       <div class="settings-group-title">Appearance</div>
@@ -3401,7 +3419,9 @@ function renderSettingsView() {
       </div>
     </div>
 
-    ${!demo ? `<div class="settings-group">
+    ${
+      !demo
+        ? `<div class="settings-group">
       <div class="settings-group-title">Activities</div>
       <div class="settings-row" style="flex-direction:column;align-items:flex-start;gap:8px">
         <div class="settings-row-label">Trip activities</div>
@@ -3426,7 +3446,9 @@ function renderSettingsView() {
         </div>
         <div id="csv-import-area" style="width:100%"></div>
       </div>
-    </div>` : ''}
+    </div>`
+        : ''
+    }
 
     <div class="settings-group">
       <div class="settings-group-title">Account</div>
@@ -3436,7 +3458,9 @@ function renderSettingsView() {
       </div>
     </div>
 
-    ${!demo ? `<div class="settings-group danger-zone">
+    ${
+      !demo
+        ? `<div class="settings-group danger-zone">
       <div class="settings-group-title">Danger Zone</div>
       <div class="settings-row" style="flex-direction:column;align-items:flex-start;gap:8px">
         <div>
@@ -3452,7 +3476,9 @@ function renderSettingsView() {
         </div>
         <button class="btn-danger" id="btn-delete-account">Delete Account</button>
       </div>
-    </div>` : ''}
+    </div>`
+        : ''
+    }
 
     <div style="text-align:center;color:var(--text-tertiary);font-size:12px;padding:24px 0">
       Packrat build ${__APP_VERSION__}
