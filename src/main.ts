@@ -616,7 +616,7 @@ async function saveContainerForm(existingId: string | null): Promise<void> {
     } else if (pendingPhoto.file) {
       await deletePhotoIfExists(existingId ? store.containers.get(existingId)?.photoPath : null);
       const path = `${userPath()}/containers/${docId}.jpg`;
-      const { thumb } = await resizeAndUpload(pendingPhoto.file, path);
+      const { thumb } = await resizeAndUpload(pendingPhoto.file, path, 400);
       data['photoPath'] = path;
       data['photoThumb'] = thumb;
     } else {
