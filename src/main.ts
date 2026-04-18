@@ -171,6 +171,7 @@ const THEME_KEY = 'packrat_theme';
 interface ThemeDef {
   label: string;
   accent: string; // swatch preview color
+  dark?: boolean;
   vars: Record<string, string>;
 }
 const THEMES: Record<string, ThemeDef> = {
@@ -262,28 +263,6 @@ const THEMES: Record<string, ThemeDef> = {
       '--shadow-raised': '0 4px 16px rgba(20,32,26,0.1), 0 0 0 1px rgba(20,32,26,0.05)',
     },
   },
-  midnight: {
-    label: 'Midnight',
-    accent: '#818cf8',
-    vars: {
-      '--bg': '#0f172a',
-      '--surface': '#1e293b',
-      '--surface-raised': '#263548',
-      '--border': '#334155',
-      '--border-light': '#293548',
-      '--text': '#f1f5f9',
-      '--text-secondary': '#94a3b8',
-      '--text-tertiary': '#64748b',
-      '--accent': '#818cf8',
-      '--accent-hover': '#6366f1',
-      '--accent-light': '#1e1b4b',
-      '--accent-faint': '#1a1744',
-      '--tag-bg': '#334155',
-      '--tag-text': '#cbd5e1',
-      '--shadow-card': '0 1px 4px rgba(0,0,0,0.3), 0 0 0 1px rgba(255,255,255,0.05)',
-      '--shadow-raised': '0 4px 16px rgba(0,0,0,0.4), 0 0 0 1px rgba(255,255,255,0.05)',
-    },
-  },
   lavender: {
     label: 'Lavender',
     accent: '#7c3aed',
@@ -304,6 +283,120 @@ const THEMES: Record<string, ThemeDef> = {
       '--tag-text': '#44385c',
       '--shadow-card': '0 1px 4px rgba(26,20,40,0.07), 0 0 0 1px rgba(26,20,40,0.04)',
       '--shadow-raised': '0 4px 16px rgba(26,20,40,0.1), 0 0 0 1px rgba(26,20,40,0.05)',
+    },
+  },
+  sunset: {
+    label: 'Sunset',
+    accent: '#ea580c',
+    vars: {
+      '--bg': '#fef7f0',
+      '--surface': '#ffffff',
+      '--surface-raised': '#fffbf7',
+      '--border': '#e8d5c4',
+      '--border-light': '#f3e6d8',
+      '--text': '#1a1410',
+      '--text-secondary': '#78573e',
+      '--text-tertiary': '#a68b74',
+      '--accent': '#ea580c',
+      '--accent-hover': '#c2410c',
+      '--accent-light': '#fff7ed',
+      '--accent-faint': '#fffaf5',
+      '--tag-bg': '#f3e6d8',
+      '--tag-text': '#5c3d28',
+      '--shadow-card': '0 1px 4px rgba(26,20,16,0.07), 0 0 0 1px rgba(26,20,16,0.04)',
+      '--shadow-raised': '0 4px 16px rgba(26,20,16,0.1), 0 0 0 1px rgba(26,20,16,0.05)',
+    },
+  },
+  midnight: {
+    label: 'Midnight',
+    accent: '#818cf8',
+    dark: true,
+    vars: {
+      '--bg': '#0f172a',
+      '--surface': '#1e293b',
+      '--surface-raised': '#263548',
+      '--border': '#334155',
+      '--border-light': '#293548',
+      '--text': '#f1f5f9',
+      '--text-secondary': '#94a3b8',
+      '--text-tertiary': '#64748b',
+      '--accent': '#818cf8',
+      '--accent-hover': '#6366f1',
+      '--accent-light': '#1e1b4b',
+      '--accent-faint': '#1a1744',
+      '--tag-bg': '#334155',
+      '--tag-text': '#cbd5e1',
+      '--shadow-card': '0 1px 4px rgba(0,0,0,0.3), 0 0 0 1px rgba(255,255,255,0.05)',
+      '--shadow-raised': '0 4px 16px rgba(0,0,0,0.4), 0 0 0 1px rgba(255,255,255,0.05)',
+    },
+  },
+  ember: {
+    label: 'Ember',
+    accent: '#f97316',
+    dark: true,
+    vars: {
+      '--bg': '#1c1210',
+      '--surface': '#2a1e1a',
+      '--surface-raised': '#362822',
+      '--border': '#4a3530',
+      '--border-light': '#3d2b26',
+      '--text': '#faf0eb',
+      '--text-secondary': '#c4a393',
+      '--text-tertiary': '#8b6e5e',
+      '--accent': '#f97316',
+      '--accent-hover': '#ea580c',
+      '--accent-light': '#3b2010',
+      '--accent-faint': '#2e1a0d',
+      '--tag-bg': '#4a3530',
+      '--tag-text': '#dbc4b8',
+      '--shadow-card': '0 1px 4px rgba(0,0,0,0.3), 0 0 0 1px rgba(255,255,255,0.04)',
+      '--shadow-raised': '0 4px 16px rgba(0,0,0,0.4), 0 0 0 1px rgba(255,255,255,0.04)',
+    },
+  },
+  evergreen: {
+    label: 'Evergreen',
+    accent: '#34d399',
+    dark: true,
+    vars: {
+      '--bg': '#0f1a16',
+      '--surface': '#1a2a24',
+      '--surface-raised': '#223830',
+      '--border': '#2d4a3e',
+      '--border-light': '#263d34',
+      '--text': '#ecfdf5',
+      '--text-secondary': '#93c5b0',
+      '--text-tertiary': '#5e8f78',
+      '--accent': '#34d399',
+      '--accent-hover': '#10b981',
+      '--accent-light': '#132a20',
+      '--accent-faint': '#10231b',
+      '--tag-bg': '#2d4a3e',
+      '--tag-text': '#b8e0d0',
+      '--shadow-card': '0 1px 4px rgba(0,0,0,0.3), 0 0 0 1px rgba(255,255,255,0.04)',
+      '--shadow-raised': '0 4px 16px rgba(0,0,0,0.4), 0 0 0 1px rgba(255,255,255,0.04)',
+    },
+  },
+  slate: {
+    label: 'Slate',
+    accent: '#64748b',
+    dark: true,
+    vars: {
+      '--bg': '#111318',
+      '--surface': '#1c1f26',
+      '--surface-raised': '#252830',
+      '--border': '#353840',
+      '--border-light': '#2c2f38',
+      '--text': '#e8eaef',
+      '--text-secondary': '#9ca3af',
+      '--text-tertiary': '#6b7280',
+      '--accent': '#94a3b8',
+      '--accent-hover': '#7d8da0',
+      '--accent-light': '#1e2230',
+      '--accent-faint': '#1a1d28',
+      '--tag-bg': '#353840',
+      '--tag-text': '#c8ccd4',
+      '--shadow-card': '0 1px 4px rgba(0,0,0,0.3), 0 0 0 1px rgba(255,255,255,0.04)',
+      '--shadow-raised': '0 4px 16px rgba(0,0,0,0.4), 0 0 0 1px rgba(255,255,255,0.04)',
     },
   },
 };
@@ -3375,12 +3468,27 @@ function renderSettingsView() {
       <div class="settings-group-title">Appearance</div>
       <div class="settings-row" style="flex-direction:column;align-items:flex-start;gap:8px">
         <div class="settings-row-label">Theme</div>
-        <div class="thumb-bg-picker" id="theme-picker">
+        <div class="theme-picker" id="theme-picker">
+          <div class="theme-section-label">Light</div>
           ${Object.entries(THEMES)
+            .filter(([, t]) => !t.dark)
             .map(
-              ([key, { label, accent }]) =>
-                `<button class="thumb-bg-opt${getTheme() === key ? ' active' : ''}" data-theme="${key}" title="${label}">
-                  <span class="thumb-bg-swatch" style="background:${accent}"></span>
+              ([key, { label, accent, vars }]) =>
+                `<button class="theme-opt${getTheme() === key ? ' active' : ''}" data-theme="${key}" title="${label}"
+                  style="background:${vars['--surface']};color:${vars['--text-secondary']};border-color:${getTheme() === key ? vars['--accent'] : vars['--border']}">
+                  <span class="theme-dot" style="background:${accent};border-color:${vars['--border']}"></span>
+                  <span>${label}</span>
+                </button>`,
+            )
+            .join('')}
+          <div class="theme-section-label">Dark</div>
+          ${Object.entries(THEMES)
+            .filter(([, t]) => t.dark)
+            .map(
+              ([key, { label, accent, vars }]) =>
+                `<button class="theme-opt${getTheme() === key ? ' active' : ''}" data-theme="${key}" title="${label}"
+                  style="background:${vars['--surface']};color:${vars['--text-secondary']};border-color:${getTheme() === key ? vars['--accent'] : vars['--border']}">
+                  <span class="theme-dot" style="background:${accent};border-color:${vars['--border']}"></span>
                   <span>${label}</span>
                 </button>`,
             )
@@ -3527,7 +3635,7 @@ function renderSettingsView() {
   });
 
   $maybe('theme-picker')?.addEventListener('click', e => {
-    const btn = (e.target as HTMLElement).closest<HTMLButtonElement>('.thumb-bg-opt');
+    const btn = (e.target as HTMLElement).closest<HTMLButtonElement>('.theme-opt');
     if (!btn) return;
     const theme = btn.dataset['theme'];
     if (theme && theme in THEMES) {
@@ -3563,7 +3671,7 @@ function renderSettingsView() {
     $('btn-confirm-ok').className = 'btn-ghost';
   });
 
-  $('btn-delete-account')?.addEventListener('click', () => {
+  $maybe('btn-delete-account')?.addEventListener('click', () => {
     showConfirm(
       'Delete your account and ALL data? This is permanent and cannot be undone.',
       () => void deleteAllUserData(),
