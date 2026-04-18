@@ -796,7 +796,10 @@ function applyItemFilters(): void {
     );
   if (cFilter) items = items.filter(it => it.containerId === cFilter);
   if (catFilter) items = items.filter(it => it.category?.group === catFilter);
-  if (currentColorFilter) items = items.filter(it => it.color === currentColorFilter);
+  if (currentColorFilter)
+    items = items.filter(
+      it => it.color?.startsWith('#') && hexToBucket(it.color) === currentColorFilter,
+    );
 
   // Color swatches — derived from all items (before color filter) so user can pick
   renderColorChips();
@@ -896,17 +899,61 @@ function renderItemGridCell(it: Item): string {
     </div>`;
 }
 
+// Color bucket definitions: name → { swatch hex, label }
+const COLOR_BUCKETS: [string, string, string][] = [
+  ['red', '#DC2626', 'Red'],
+  ['orange', '#EA580C', 'Orange'],
+  ['yellow', '#CA8A04', 'Yellow'],
+  ['green', '#16A34A', 'Green'],
+  ['blue', '#2563EB', 'Blue'],
+  ['purple', '#7C3AED', 'Purple'],
+  ['pink', '#DB2777', 'Pink'],
+  ['brown', '#78350F', 'Brown'],
+  ['gray', '#6B7280', 'Gray'],
+  ['black', '#1F2937', 'Black'],
+  ['white', '#F3F4F6', 'White'],
+];
+
+function hexToBucket(hex: string): string | null {
+  const r = parseInt(hex.slice(1, 3), 16);
+  const g = parseInt(hex.slice(3, 5), 16);
+  const b = parseInt(hex.slice(5, 7), 16);
+  if (isNaN(r) || isNaN(g) || isNaN(b)) return null;
+  const max = Math.max(r, g, b),
+    min = Math.min(r, g, b);
+  const l = (max + min) / 2 / 255;
+  const d = max - min;
+  const s = d === 0 ? 0 : d / (1 - Math.abs(2 * l - 1)) / 255;
+  let h = 0;
+  if (d !== 0) {
+    if (max === r) h = ((g - b) / d + (g < b ? 6 : 0)) * 60;
+    else if (max === g) h = ((b - r) / d + 2) * 60;
+    else h = ((r - g) / d + 4) * 60;
+  }
+  if (l < 0.1) return 'black';
+  if (l > 0.88 && s < 0.15) return 'white';
+  if (s < 0.12) return 'gray';
+  if (s < 0.4 && h >= 15 && h < 50 && l < 0.45) return 'brown';
+  if (h < 15 || h >= 345) return 'red';
+  if (h < 45) return 'orange';
+  if (h < 70) return 'yellow';
+  if (h < 170) return 'green';
+  if (h < 260) return 'blue';
+  if (h < 300) return 'purple';
+  return 'pink';
+}
+
 function renderColorChips(): void {
   const el = $maybe('items-color-chips');
   if (!el) return;
-  const allColors = [
-    ...new Set(
-      [...store.items.values()]
-        .map(it => it.color)
-        .filter((c): c is string => !!c && c.startsWith('#')),
-    ),
-  ].sort();
-  if (!allColors.length) {
+  const usedBuckets = new Set<string>();
+  for (const it of store.items.values()) {
+    if (it.color?.startsWith('#')) {
+      const bucket = hexToBucket(it.color);
+      if (bucket) usedBuckets.add(bucket);
+    }
+  }
+  if (!usedBuckets.size) {
     el.classList.add('hidden');
     el.innerHTML = '';
     return;
@@ -914,10 +961,10 @@ function renderColorChips(): void {
   el.classList.remove('hidden');
   el.innerHTML =
     `<span class="chip color-chip-all${!currentColorFilter ? ' active' : ''}" data-color="">All</span>` +
-    allColors
+    COLOR_BUCKETS.filter(([name]) => usedBuckets.has(name))
       .map(
-        c =>
-          `<span class="color-chip${currentColorFilter === c ? ' active' : ''}" data-color="${esc(c)}" title="${esc(c)}" style="background:${esc(c)}"></span>`,
+        ([name, swatch, label]) =>
+          `<span class="color-chip${currentColorFilter === name ? ' active' : ''}" data-color="${name}" title="${label}" style="background:${swatch}"></span>`,
       )
       .join('');
 }
