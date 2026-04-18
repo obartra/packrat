@@ -59,12 +59,15 @@ import {
 import {
   pendingPhoto,
   resizeAndUpload,
+  uploadBlob,
   lazyLoadPhoto,
   deletePhotoIfExists,
   triggerPhotoPicker,
   setupSheetPhotoButtons,
   setPhotoPickerCallback,
 } from './photos';
+import { generateThumbDataUrl } from './images';
+import { removePhotoBackground } from './bg-removal';
 import { showToast } from './ui/toast';
 import { showConfirm } from './ui/confirm';
 import { openSheet, closeSheet, setOnSheetClose } from './ui/sheet';
@@ -127,6 +130,7 @@ let itemsGrouping: ItemsGrouping =
 // Inference lifecycle
 let inferenceRequestId = 0;
 let inferenceAbort: AbortController | null = null;
+let bgRemovalBlob: Blob | null = null;
 
 // ============================================================
 //  UTILITY
@@ -451,9 +455,11 @@ function renderContainersView() {
       <div class="card container-card" data-id="${c.id}" data-action="open-container">
         <div class="card-photo">
           ${
-            c.photoPath
-              ? `<img data-photo="${esc(c.photoPath)}" alt="${esc(c.name)}">`
-              : `<div class="no-photo-icon">${icon}</div>`
+            c.photoThumb
+              ? `<img src="${c.photoThumb}" alt="${esc(c.name)}">`
+              : c.photoPath
+                ? `<img data-photo="${esc(c.photoPath)}" alt="${esc(c.name)}">`
+                : `<div class="no-photo-icon">${icon}</div>`
           }
         </div>
         <div class="card-body">
@@ -569,13 +575,16 @@ async function saveContainerForm(existingId: string | null): Promise<void> {
     if (pendingPhoto.file === 'REMOVE') {
       await deletePhotoIfExists(pendingPhoto.oldPath);
       data['photoPath'] = null;
+      data['photoThumb'] = null;
     } else if (pendingPhoto.file) {
       await deletePhotoIfExists(existingId ? store.containers.get(existingId)?.photoPath : null);
       const path = `${userPath()}/containers/${docId}.jpg`;
-      await resizeAndUpload(pendingPhoto.file, path);
+      const { thumb } = await resizeAndUpload(pendingPhoto.file, path);
       data['photoPath'] = path;
+      data['photoThumb'] = thumb;
     } else {
       data['photoPath'] = existingId ? (store.containers.get(existingId)?.photoPath ?? null) : null;
+      data['photoThumb'] = existingId ? (store.containers.get(existingId)?.photoThumb ?? null) : null;
     }
 
     if (existingId) {
@@ -806,7 +815,7 @@ function renderItemRow(it: Item): string {
   return `
     <div class="item-row" data-action="open-item" data-id="${it.id}">
       <div class="item-thumb">
-        ${it.photoPath ? `<img data-photo="${esc(it.photoPath)}" alt="${esc(it.name)}">` : `<span>${icon}</span>`}
+        ${it.photoThumb ? `<img src="${it.photoThumb}" alt="${esc(it.name)}">` : it.photoPath ? `<img data-photo="${esc(it.photoPath)}" alt="${esc(it.name)}">` : `<span>${icon}</span>`}
       </div>
       <div class="item-info">
         <div class="item-name">${it.color ? `<span class="color-dot" style="background:${esc(it.color)}"></span> ` : ''}${esc(it.name)}</div>
@@ -1153,6 +1162,7 @@ function openItemForm(itemId: string | null = null): void {
       inferenceAbort = null;
     }
     if (reInferTimer) clearTimeout(reInferTimer);
+    bgRemovalBlob = null;
     if (previewObjectUrl) {
       URL.revokeObjectURL(previewObjectUrl);
       previewObjectUrl = null;
@@ -1173,6 +1183,17 @@ function openItemForm(itemId: string | null = null): void {
 
     // Cancel any in-flight inference
     if (inferenceAbort) inferenceAbort.abort();
+
+    // Start background removal in parallel (fire and forget)
+    bgRemovalBlob = null;
+    removePhotoBackground(file)
+      .then(blob => {
+        // Only store if this photo is still the pending one
+        if (pendingPhoto.file === file) bgRemovalBlob = blob;
+      })
+      .catch(() => {
+        /* bg removal is best-effort */
+      });
 
     const apiKey = getApiKey();
     if (!apiKey) {
@@ -1220,6 +1241,7 @@ function openItemForm(itemId: string | null = null): void {
     pendingPhoto.oldPath = it.photoPath ?? null;
     $('f-photo-preview').innerHTML = iconForCategory(it.category?.group, it.category?.value);
     inferenceBase64 = null;
+    bgRemovalBlob = null;
     if (inferenceAbort) {
       inferenceAbort.abort();
       inferenceAbort = null;
@@ -1281,14 +1303,36 @@ async function saveItemForm(existingId: string | null): Promise<void> {
       await deletePhotoIfExists(
         pendingPhoto.oldPath || (existingId ? store.items.get(existingId)?.photoPath : null),
       );
+      const oldNobg = existingId ? store.items.get(existingId)?.photoNobgPath : null;
+      await deletePhotoIfExists(oldNobg);
       data['photoPath'] = null;
+      data['photoThumb'] = null;
+      data['photoNobgPath'] = null;
+      data['photoNobgThumb'] = null;
     } else if (pendingPhoto.file) {
       await deletePhotoIfExists(existingId ? store.items.get(existingId)?.photoPath : null);
+      const oldNobg = existingId ? store.items.get(existingId)?.photoNobgPath : null;
+      await deletePhotoIfExists(oldNobg);
       const path = `${userPath()}/items/${docId}.jpg`;
-      await resizeAndUpload(pendingPhoto.file, path);
+      const { thumb } = await resizeAndUpload(pendingPhoto.file, path);
       data['photoPath'] = path;
+      data['photoThumb'] = thumb;
+      // Use bg removal result if ready
+      if (bgRemovalBlob) {
+        const nobgPath = `${userPath()}/items/${docId}_nobg.png`;
+        const nobgThumb = await generateThumbDataUrl(bgRemovalBlob, 80, 'image/png');
+        await uploadBlob(bgRemovalBlob, nobgPath, 'image/png');
+        data['photoNobgPath'] = nobgPath;
+        data['photoNobgThumb'] = nobgThumb;
+      } else {
+        data['photoNobgPath'] = null;
+        data['photoNobgThumb'] = null;
+      }
     } else {
       data['photoPath'] = existingId ? (store.items.get(existingId)?.photoPath ?? null) : null;
+      data['photoThumb'] = existingId ? (store.items.get(existingId)?.photoThumb ?? null) : null;
+      data['photoNobgPath'] = existingId ? (store.items.get(existingId)?.photoNobgPath ?? null) : null;
+      data['photoNobgThumb'] = existingId ? (store.items.get(existingId)?.photoNobgThumb ?? null) : null;
     }
 
     if (existingId) {

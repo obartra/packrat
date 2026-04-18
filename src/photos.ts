@@ -1,7 +1,7 @@
 import { ref as storageRef, uploadBytes, getDownloadURL, deleteObject } from 'firebase/storage';
 import { storage } from './firebase';
 import { $ } from './utils';
-import { resizeToCanvas } from './images';
+import { resizeToCanvas, generateThumbDataUrl } from './images';
 
 export type PendingPhotoValue = File | 'REMOVE' | null;
 
@@ -23,11 +23,14 @@ export const photoUrlCache = new Map<string, string>();
 
 /**
  * Resize an image (max 1400px on longest edge) and upload as JPEG @ 0.82.
- * Returns the download URL.
+ * Also generates an inline thumbnail. Returns { url, thumb }.
  */
-export async function resizeAndUpload(file: File, path: string): Promise<string> {
-  const canvas = await resizeToCanvas(file, 1400);
-  return new Promise<string>((resolve, reject) => {
+export async function resizeAndUpload(
+  file: File,
+  path: string,
+): Promise<{ url: string; thumb: string }> {
+  const [canvas, thumb] = await Promise.all([resizeToCanvas(file, 1400), generateThumbDataUrl(file)]);
+  return new Promise<{ url: string; thumb: string }>((resolve, reject) => {
     canvas.toBlob(
       async blob => {
         if (!blob) {
@@ -39,7 +42,7 @@ export async function resizeAndUpload(file: File, path: string): Promise<string>
           await uploadBytes(sRef, blob, { contentType: 'image/jpeg' });
           const url = await getDownloadURL(sRef);
           photoUrlCache.set(path, url);
-          resolve(url);
+          resolve({ url, thumb });
         } catch (err) {
           reject(err);
         }
@@ -48,6 +51,12 @@ export async function resizeAndUpload(file: File, path: string): Promise<string>
       0.82,
     );
   });
+}
+
+/** Upload an already-processed blob (e.g. transparent PNG) to Storage. */
+export async function uploadBlob(blob: Blob, path: string, contentType: string): Promise<void> {
+  const sRef = storageRef(storage, path);
+  await uploadBytes(sRef, blob, { contentType });
 }
 
 /**

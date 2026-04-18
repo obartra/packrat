@@ -17,6 +17,7 @@ export interface Container {
   location: string;
   parentContainerId: string | null;
   photoPath: string | null;
+  photoThumb?: string | null;
   color: string | null;
   notes: string;
   createdAt: TimestampField;
@@ -31,6 +32,9 @@ export interface Item {
   quantityPackDefault: number;
   containerId: string | null;
   photoPath: string | null;
+  photoThumb?: string | null;
+  photoNobgPath?: string | null;
+  photoNobgThumb?: string | null;
   color?: string | null;
   description?: string | null;
   tags: string[];

@@ -3,8 +3,8 @@
  * dependencies so both photos.ts and inference.ts can import it.
  */
 
-/** Read a File, resize to fit within `maxSize` px, and return the canvas. */
-export function resizeToCanvas(file: File, maxSize: number): Promise<HTMLCanvasElement> {
+/** Read a Blob/File, resize to fit within `maxSize` px, and return the canvas. */
+export function resizeToCanvas(file: Blob, maxSize: number): Promise<HTMLCanvasElement> {
   return new Promise<HTMLCanvasElement>((resolve, reject) => {
     const reader = new FileReader();
     reader.onload = e => {
@@ -43,4 +43,15 @@ export function resizeToCanvas(file: File, maxSize: number): Promise<HTMLCanvasE
     reader.onerror = () => reject(new Error('file read failed'));
     reader.readAsDataURL(file);
   });
+}
+
+/** Generate a small JPEG data URL for inline thumbnails (~2-3KB). */
+export async function generateThumbDataUrl(
+  source: Blob,
+  size = 80,
+  format: 'image/jpeg' | 'image/png' = 'image/jpeg',
+  quality = 0.4,
+): Promise<string> {
+  const canvas = await resizeToCanvas(source, size);
+  return format === 'image/png' ? canvas.toDataURL('image/png') : canvas.toDataURL('image/jpeg', quality);
 }
