@@ -932,7 +932,7 @@ function renderColorChips(): void {
 const VIEW_ICON_GRID =
   '<rect x="1" y="1" width="6" height="6" rx="1"/><rect x="11" y="1" width="6" height="6" rx="1"/><rect x="1" y="11" width="6" height="6" rx="1"/><rect x="11" y="11" width="6" height="6" rx="1"/>';
 const VIEW_ICON_LIST =
-  '<line x1="1" y1="3" x2="17" y2="3"/><line x1="1" y1="9" x2="17" y2="9"/><line x1="1" y1="15" x2="17" y2="15"/>';
+  '<circle cx="2" cy="3" r="1.5" fill="currentColor" stroke="none"/><line x1="6" y1="3" x2="17" y2="3"/><circle cx="2" cy="9" r="1.5" fill="currentColor" stroke="none"/><line x1="6" y1="9" x2="17" y2="9"/><circle cx="2" cy="15" r="1.5" fill="currentColor" stroke="none"/><line x1="6" y1="15" x2="17" y2="15"/>';
 
 function updateViewToggleIcon(): void {
   const svg = $maybe('view-toggle-icon');
