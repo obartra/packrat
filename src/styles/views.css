@@ -48,14 +48,16 @@
   z-index: 10;
 }
 .view.active {
-  display: block;
+  display: flex;
+  flex-direction: column;
 }
 .view-auth {
   top: var(--header-h);
   bottom: calc(var(--nav-h) + var(--safe-bottom));
 }
 .view-scroll {
-  height: 100%;
+  flex: 1;
+  min-height: 0;
   overflow-y: auto;
   -webkit-overflow-scrolling: touch;
   padding: 16px 16px 80px;

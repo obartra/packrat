@@ -150,6 +150,7 @@ function setApiKey(k: string): void {
 
 type TempUnit = 'celsius' | 'fahrenheit';
 const TEMP_UNIT_KEY = 'packrat_units';
+const LAST_CONTAINER_KEY = 'packrat_last_container';
 function getTempUnit(): TempUnit {
   return localStorage.getItem(TEMP_UNIT_KEY) === 'fahrenheit' ? 'fahrenheit' : 'celsius';
 }
@@ -930,12 +931,13 @@ function itemFormBody(it: Partial<Item> = {}): string {
       .join('');
   };
 
+  const selectedContainer = it.containerId ?? localStorage.getItem(LAST_CONTAINER_KEY) ?? '';
   const contOpts =
     '<option value="">Unassigned</option>' +
     [...store.containers.values()]
       .map(
         c =>
-          `<option value="${c.id}" ${it.containerId === c.id ? 'selected' : ''}>${esc(c.name)}</option>`,
+          `<option value="${c.id}" ${selectedContainer === c.id ? 'selected' : ''}>${esc(c.name)}</option>`,
       )
       .join('');
 
@@ -1169,6 +1171,11 @@ async function saveItemForm(existingId: string | null): Promise<void> {
       notes: $('f-notes').value?.trim() || '',
       updatedAt: serverTimestamp(),
     };
+
+    const selectedContainerId = data['containerId'] as string | null;
+    if (selectedContainerId) {
+      localStorage.setItem(LAST_CONTAINER_KEY, selectedContainerId);
+    }
 
     const docRef = existingId ? doc(db, `${userPath()}/items/${existingId}`) : doc(itemsCol());
     const docId = docRef.id;
