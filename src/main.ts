@@ -66,7 +66,7 @@ import {
   setupSheetPhotoButtons,
   setPhotoPickerCallback,
 } from './photos';
-import { generateThumbDataUrl } from './images';
+import { generateThumbDataUrl, resizeBlobPng } from './images';
 import { removePhotoBackground } from './bg-removal';
 import { showToast } from './ui/toast';
 import { showConfirm } from './ui/confirm';
@@ -122,10 +122,15 @@ import { downsampleForInference, callInferenceAPI } from './inference';
 //  FORM STATE (local to this module)
 // ============================================================
 let currentItemFilter = '';
+let currentColorFilter = '';
 type ItemsGrouping = 'category' | 'container';
 const ITEMS_GROUPING_KEY = 'packrat_items_grouping';
 let itemsGrouping: ItemsGrouping =
   localStorage.getItem(ITEMS_GROUPING_KEY) === 'container' ? 'container' : 'category';
+type ItemsViewMode = 'list' | 'grid';
+const ITEMS_VIEW_KEY = 'packrat_items_view';
+let itemsViewMode: ItemsViewMode =
+  localStorage.getItem(ITEMS_VIEW_KEY) === 'grid' ? 'grid' : 'list';
 
 // Inference lifecycle
 let inferenceRequestId = 0;
@@ -789,6 +794,13 @@ function applyItemFilters(): void {
     );
   if (cFilter) items = items.filter(it => it.containerId === cFilter);
   if (catFilter) items = items.filter(it => it.category?.group === catFilter);
+  if (currentColorFilter) items = items.filter(it => it.color === currentColorFilter);
+
+  // Color swatches — derived from all items (before color filter) so user can pick
+  renderColorChips();
+
+  // Update view toggle icon
+  updateViewToggleIcon();
 
   const content = $('items-list-content');
   const emptyEl = $('items-empty');
@@ -799,6 +811,8 @@ function applyItemFilters(): void {
     return;
   }
   emptyEl.classList.add('hidden');
+
+  const isGrid = itemsViewMode === 'grid';
 
   // Group by selected mode (category.group or container)
   const groupKeyOf = (it: Item): string =>
@@ -826,12 +840,15 @@ function applyItemFilters(): void {
   const labelFor = (k: string): string =>
     itemsGrouping === 'category' ? k.charAt(0).toUpperCase() + k.slice(1) : k;
 
+  const renderFn = isGrid ? renderItemGridCell : renderItemRow;
+  const wrapClass = isGrid ? 'item-grid' : 'stack';
+
   content.innerHTML = sortedKeys
     .map(
       k => `
     <div class="group-header">${esc(labelFor(k))} <span style="font-size:11px;font-weight:400;text-transform:none;letter-spacing:0">(${groups[k]!.length})</span></div>
-    <div class="stack" style="margin-bottom:4px">
-      ${groups[k]!.map(it => renderItemRow(it)).join('')}
+    <div class="${wrapClass}" style="margin-bottom:4px">
+      ${groups[k]!.map(it => renderFn(it)).join('')}
     </div>
   `,
     )
@@ -844,12 +861,13 @@ function applyItemFilters(): void {
 
 function renderItemRow(it: Item): string {
   const icon = iconForCategory(it.category?.group, it.category?.value);
-  const thumbSrc = it.photoNobgThumb || it.photoThumb;
-  const thumbBg = it.photoNobgThumb ? `background:${getThumbBgCss()}` : '';
+  const useNobg = !!it.photoNobgThumb && getThumbBg() !== 'none';
+  const thumbSrc = useNobg ? it.photoNobgThumb : it.photoThumb;
+  const thumbBg = useNobg ? `background:${getThumbBgCss()}` : '';
   return `
     <div class="item-row" data-action="open-item" data-id="${it.id}">
       <div class="item-thumb"${thumbBg ? ` style="${thumbBg}"` : ''}>
-        ${thumbSrc ? `<img src="${thumbSrc}" alt="${esc(it.name)}"${it.photoNobgThumb ? ' class="nobg-thumb"' : ''}>` : it.photoPath ? `<img data-photo="${esc(it.photoPath)}" alt="${esc(it.name)}">` : `<span>${icon}</span>`}
+        ${thumbSrc ? `<img src="${thumbSrc}" alt="${esc(it.name)}"${useNobg ? ' class="nobg-thumb"' : ''}>` : it.photoPath ? `<img data-photo="${esc(it.photoPath)}" alt="${esc(it.name)}">` : `<span>${icon}</span>`}
       </div>
       <div class="item-info">
         <div class="item-name">${it.color ? `<span class="color-dot" style="background:${esc(it.color)}"></span> ` : ''}${esc(it.name)}</div>
@@ -860,6 +878,54 @@ function renderItemRow(it: Item): string {
       </div>
       <span class="item-qty">${it.quantityOwned || 1}</span>
     </div>`;
+}
+
+function renderItemGridCell(it: Item): string {
+  const icon = iconForCategory(it.category?.group, it.category?.value);
+  const useNobg = !!it.photoNobgThumb && getThumbBg() !== 'none';
+  const thumbSrc = useNobg ? it.photoNobgThumb : it.photoThumb;
+  const thumbBg = useNobg ? `background:${getThumbBgCss()}` : '';
+  return `
+    <div class="item-grid-cell" data-action="open-item" data-id="${it.id}">
+      <div class="item-grid-photo"${thumbBg ? ` style="${thumbBg}"` : ''}>
+        ${thumbSrc ? `<img src="${thumbSrc}" alt="${esc(it.name)}"${useNobg ? ' class="nobg-thumb"' : ''}>` : it.photoPath ? `<img data-photo="${esc(it.photoPath)}" alt="${esc(it.name)}">` : `<span>${icon}</span>`}
+      </div>
+      <div class="item-grid-name">${esc(it.name)}</div>
+    </div>`;
+}
+
+function renderColorChips(): void {
+  const el = $maybe('items-color-chips');
+  if (!el) return;
+  const allColors = [
+    ...new Set(
+      [...store.items.values()]
+        .map(it => it.color)
+        .filter((c): c is string => !!c && c.startsWith('#')),
+    ),
+  ].sort();
+  if (!allColors.length) {
+    el.classList.add('hidden');
+    el.innerHTML = '';
+    return;
+  }
+  el.classList.remove('hidden');
+  el.innerHTML =
+    `<span class="chip color-chip-all${!currentColorFilter ? ' active' : ''}" data-color="">All</span>` +
+    allColors
+      .map(
+        c =>
+          `<span class="color-chip${currentColorFilter === c ? ' active' : ''}" data-color="${esc(c)}" title="${esc(c)}" style="background:${esc(c)}"></span>`,
+      )
+      .join('');
+}
+
+const VIEW_ICON_GRID = '<rect x="1" y="1" width="6" height="6" rx="1"/><rect x="11" y="1" width="6" height="6" rx="1"/><rect x="1" y="11" width="6" height="6" rx="1"/><rect x="11" y="11" width="6" height="6" rx="1"/>';
+const VIEW_ICON_LIST = '<line x1="1" y1="3" x2="17" y2="3"/><line x1="1" y1="9" x2="17" y2="9"/><line x1="1" y1="15" x2="17" y2="15"/>';
+
+function updateViewToggleIcon(): void {
+  const svg = $maybe('view-toggle-icon');
+  if (svg) svg.innerHTML = itemsViewMode === 'list' ? VIEW_ICON_GRID : VIEW_ICON_LIST;
 }
 
 $('btn-add-item').addEventListener('click', () => openItemForm());
@@ -882,6 +948,12 @@ document.querySelectorAll<HTMLElement>('.group-by-row .segment').forEach(btn => 
   });
 });
 
+$('btn-view-toggle').addEventListener('click', () => {
+  itemsViewMode = itemsViewMode === 'list' ? 'grid' : 'list';
+  localStorage.setItem(ITEMS_VIEW_KEY, itemsViewMode);
+  applyItemFilters();
+});
+
 document.addEventListener('click', e => {
   const target = e.target as HTMLElement | null;
   const chip = target?.closest<HTMLElement>('.chip[data-cat]');
@@ -891,6 +963,12 @@ document.addEventListener('click', e => {
       .querySelectorAll('#items-category-chips .chip')
       .forEach(c => c.classList.remove('active'));
     chip.classList.add('active');
+    applyItemFilters();
+  }
+  // Color filter
+  const colorEl = target?.closest<HTMLElement>('[data-color]');
+  if (colorEl && colorEl.closest('#items-color-chips')) {
+    currentColorFilter = colorEl.dataset['color'] ?? '';
     applyItemFilters();
   }
 });
@@ -1354,8 +1432,9 @@ async function saveItemForm(existingId: string | null): Promise<void> {
       // Use bg removal result if ready
       if (bgRemovalBlob) {
         const nobgPath = `${userPath()}/items/${docId}_nobg.png`;
-        const nobgThumb = await generateThumbDataUrl(bgRemovalBlob, 80, 'image/png');
-        await uploadBlob(bgRemovalBlob, nobgPath, 'image/png');
+        const resizedNobg = await resizeBlobPng(bgRemovalBlob, 1400);
+        const nobgThumb = await generateThumbDataUrl(resizedNobg, 80, 'image/png');
+        await uploadBlob(resizedNobg, nobgPath, 'image/png');
         data['photoNobgPath'] = nobgPath;
         data['photoNobgThumb'] = nobgThumb;
       } else {

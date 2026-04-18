@@ -26,6 +26,7 @@ export const CATEGORIES: CategoriesMap = {
     'hygiene',
     'fragrance',
     'first-aid',
+    'intimate',
   ],
   electronics: ['phone-tablet', 'cables', 'adapters', 'audio', 'camera', 'computer', 'accessories'],
   documents: [
@@ -146,6 +147,7 @@ export const SUBCATEGORY_ICONS: Record<string, string> = {
   // toiletries (new subtypes)
   'toiletries/fragrance': '🧴',
   'toiletries/first-aid': '🩹',
+  'toiletries/intimate': '🔒',
   // travel
   'travel/comfort': '😴',
   'travel/organization': '🧳',

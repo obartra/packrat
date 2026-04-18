@@ -45,6 +45,17 @@ export function resizeToCanvas(file: Blob, maxSize: number): Promise<HTMLCanvasE
   });
 }
 
+/** Resize a blob to fit within maxSize px (no upscale) and return as PNG. */
+export async function resizeBlobPng(blob: Blob, maxSize: number): Promise<Blob> {
+  const canvas = await resizeToCanvas(blob, maxSize);
+  return new Promise<Blob>((resolve, reject) => {
+    canvas.toBlob(
+      b => (b ? resolve(b) : reject(new Error('PNG blob creation failed'))),
+      'image/png',
+    );
+  });
+}
+
 /** Generate a small JPEG data URL for inline thumbnails (~2-3KB). */
 export async function generateThumbDataUrl(
   source: Blob,
