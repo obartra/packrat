@@ -305,7 +305,6 @@
   border: 1px solid var(--border);
 }
 
-
 /* Item grid (compact thumbnail view) */
 .item-grid {
   display: grid;
