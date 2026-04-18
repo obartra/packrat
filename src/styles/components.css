@@ -309,19 +309,16 @@
 /* Item grid (compact thumbnail view) */
 .item-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, 100px);
-  justify-content: center;
-  gap: 10px;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
 }
 .item-grid-cell {
-  width: 100px;
   cursor: pointer;
   text-align: center;
   -webkit-tap-highlight-color: transparent;
 }
 .item-grid-photo {
-  width: 100px;
-  height: 100px;
+  aspect-ratio: 1;
   border-radius: 8px;
   background: var(--border-light);
   overflow: hidden;
