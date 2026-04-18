@@ -963,9 +963,6 @@
   .card-grid {
     grid-template-columns: 1fr 1fr 1fr;
   }
-  .item-grid {
-    grid-template-columns: repeat(4, 1fr);
-  }
 }
 @media (min-width: 768px) {
   .view-scroll {
