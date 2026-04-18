@@ -818,6 +818,7 @@ function applyItemFilters(): void {
   emptyEl.classList.add('hidden');
 
   const isGrid = itemsViewMode === 'grid';
+  content.closest('.items-scroll')?.classList.toggle('grid-mode', isGrid);
 
   // Group by selected mode (category.group or container)
   const groupKeyOf = (it: Item): string =>
@@ -895,7 +896,6 @@ function renderItemGridCell(it: Item): string {
       <div class="item-grid-photo"${thumbBg ? ` style="${thumbBg}"` : ''}>
         ${thumbSrc ? `<img src="${thumbSrc}" alt="${esc(it.name)}"${useNobg ? ' class="nobg-thumb"' : ''}>` : it.photoPath ? `<img data-photo="${esc(it.photoPath)}" alt="${esc(it.name)}">` : `<span>${icon}</span>`}
       </div>
-      <div class="item-grid-name">${esc(it.name)}</div>
     </div>`;
 }
 

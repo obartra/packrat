@@ -309,26 +309,24 @@
 /* Item grid (compact thumbnail view) */
 .item-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, 100px);
-  justify-content: center;
-  gap: 10px;
+  grid-template-columns: repeat(auto-fill, 72px);
+  gap: 6px;
 }
 .item-grid-cell {
-  width: 100px;
+  width: 72px;
   cursor: pointer;
-  text-align: center;
   -webkit-tap-highlight-color: transparent;
 }
 .item-grid-photo {
-  width: 100px;
-  height: 100px;
+  width: 72px;
+  height: 72px;
   border-radius: 8px;
   background: var(--border-light);
   overflow: hidden;
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 28px;
+  font-size: 24px;
   color: var(--text-tertiary);
 }
 .item-grid-photo img {
@@ -339,15 +337,7 @@
 }
 .item-grid-photo img.nobg-thumb {
   object-fit: contain;
-  padding: 6px;
-}
-.item-grid-name {
-  font-size: 11px;
-  font-weight: 500;
-  margin-top: 4px;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  padding: 4px;
 }
 
 /* Color filter swatches */

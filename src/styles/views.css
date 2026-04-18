@@ -65,6 +65,10 @@
 .items-scroll {
   padding-top: 0;
 }
+.items-scroll.grid-mode {
+  padding-left: 8px;
+  padding-right: 8px;
+}
 
 /* === LOGIN === */
 #view-login {
