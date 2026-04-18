@@ -34,6 +34,7 @@ import type {
   PackingItem,
   MonthlyClimate,
   Trip,
+  InferenceResult,
 } from './types';
 import { auth, db } from './firebase';
 import { $, $maybe, esc } from './utils';
@@ -112,7 +113,7 @@ import {
 } from './trips';
 import { geocode, fetchYearClimate, aggregateMonths, type GeoLocation } from './weather';
 import { callAI, SYSTEM_PROMPT, buildUserMessage, inventoryFromItems, parseAIResponse } from './ai';
-import { inferFromPhoto } from './inference';
+import { downsampleForInference, callInferenceAPI } from './inference';
 
 // ============================================================
 //  FORM STATE (local to this module)
@@ -1030,12 +1031,128 @@ function openItemForm(itemId: string | null = null): void {
     if (valSel) valSel.innerHTML = categoryValueOptions(sel.value);
   });
 
+  // --- Shared inference helpers ---
+  function applyInferenceResult(result: InferenceResult): void {
+    if (!touchedFields.has('name') && result.name) {
+      const el = $maybe('f-name') as HTMLInputElement | null;
+      if (el) el.value = result.name;
+    }
+    if (!touchedFields.has('description') && result.description) {
+      const el = $maybe('f-description') as HTMLTextAreaElement | null;
+      if (el) el.value = result.description;
+    }
+    if (!touchedFields.has('category') && result.categoryGroup) {
+      const groupSel = $maybe('f-cat-group') as HTMLSelectElement | null;
+      if (groupSel) {
+        groupSel.value = result.categoryGroup;
+        const valSel = $maybe('f-cat-value') as HTMLSelectElement | null;
+        if (valSel) {
+          valSel.innerHTML = categoryValueOptions(result.categoryGroup!);
+          if (result.categoryValue) valSel.value = result.categoryValue;
+        }
+      }
+    }
+    if (!touchedFields.has('color') && result.color) {
+      const el = $maybe('f-color') as HTMLInputElement | null;
+      if (el) el.value = result.color;
+      const swatch = $maybe('f-color-swatch');
+      if (swatch) (swatch as HTMLElement).style.background = result.color;
+    }
+    if (!touchedFields.has('tags') && result.tags?.length) {
+      const el = $maybe('f-tags') as HTMLInputElement | null;
+      if (el) el.value = result.tags.join(', ');
+    }
+  }
+
+  let inferenceBase64: string | null = null;
+  let reInferTimer: ReturnType<typeof setTimeout> | null = null;
+  let lastCorrectionKey = '';
+
+  function gatherCorrections(): Record<string, string> | null {
+    const c: Record<string, string> = {};
+    if (touchedFields.has('name')) {
+      const v = ($maybe('f-name') as HTMLInputElement | null)?.value?.trim();
+      if (v) c['Name'] = v;
+    }
+    if (touchedFields.has('description')) {
+      const v = ($maybe('f-description') as HTMLTextAreaElement | null)?.value?.trim();
+      if (v) c['Description'] = v;
+    }
+    if (touchedFields.has('category')) {
+      const g = ($maybe('f-cat-group') as HTMLSelectElement | null)?.value;
+      const v = ($maybe('f-cat-value') as HTMLSelectElement | null)?.value;
+      if (g) c['Category'] = v ? `${g} > ${v}` : g;
+    }
+    if (touchedFields.has('color')) {
+      const v = ($maybe('f-color') as HTMLInputElement | null)?.value?.trim();
+      if (v) c['Color'] = v;
+    }
+    if (touchedFields.has('tags')) {
+      const v = ($maybe('f-tags') as HTMLInputElement | null)?.value?.trim();
+      if (v) c['Tags'] = v;
+    }
+    return Object.keys(c).length > 0 ? c : null;
+  }
+
+  function scheduleReInference(): void {
+    if (!inferenceBase64) return;
+    const apiKey = getApiKey();
+    if (!apiKey) return;
+
+    if (reInferTimer) clearTimeout(reInferTimer);
+    reInferTimer = setTimeout(() => {
+      const corrections = gatherCorrections();
+      if (!corrections) return;
+
+      const key = JSON.stringify(corrections);
+      if (key === lastCorrectionKey) return;
+      lastCorrectionKey = key;
+
+      if (inferenceAbort) inferenceAbort.abort();
+      const requestId = ++inferenceRequestId;
+      inferenceAbort = new AbortController();
+      const timeoutId = setTimeout(() => inferenceAbort?.abort(), 10_000);
+
+      const statusEl = $maybe('f-inference-status');
+      if (statusEl) {
+        statusEl.textContent = 'Re-analyzing…';
+        statusEl.classList.remove('hidden');
+      }
+
+      callInferenceAPI(inferenceBase64!, apiKey, inferenceAbort.signal, corrections)
+        .then(result => {
+          clearTimeout(timeoutId);
+          if (requestId !== inferenceRequestId) return;
+          applyInferenceResult(result);
+        })
+        .catch(err => {
+          clearTimeout(timeoutId);
+          if (err instanceof DOMException && err.name === 'AbortError') return;
+        })
+        .finally(() => {
+          if (requestId === inferenceRequestId) {
+            const statusEl = $maybe('f-inference-status');
+            if (statusEl) statusEl.classList.add('hidden');
+          }
+        });
+    }, 800);
+  }
+
+  // Blur on text/textarea fields triggers re-inference
+  for (const id of ['f-name', 'f-description', 'f-color', 'f-tags']) {
+    $maybe(id)?.addEventListener('blur', scheduleReInference);
+  }
+  // Select changes trigger re-inference directly (selects don't blur predictably)
+  $maybe('f-cat-group')?.addEventListener('change', scheduleReInference);
+  $maybe('f-cat-value')?.addEventListener('change', scheduleReInference);
+
   // --- Cancel inference on sheet close ---
   setOnSheetClose(() => {
     if (inferenceAbort) {
       inferenceAbort.abort();
       inferenceAbort = null;
     }
+    if (reInferTimer) clearTimeout(reInferTimer);
     if (previewObjectUrl) {
       URL.revokeObjectURL(previewObjectUrl);
       previewObjectUrl = null;
@@ -1068,42 +1185,20 @@ function openItemForm(itemId: string | null = null): void {
     const timeoutId = setTimeout(() => inferenceAbort?.abort(), 10_000);
 
     const statusEl = $maybe('f-inference-status');
-    if (statusEl) statusEl.classList.remove('hidden');
+    if (statusEl) {
+      statusEl.textContent = 'Analyzing photo…';
+      statusEl.classList.remove('hidden');
+    }
 
-    inferFromPhoto(file, apiKey, inferenceAbort.signal)
+    downsampleForInference(file)
+      .then(base64 => {
+        inferenceBase64 = base64;
+        return callInferenceAPI(base64, apiKey, inferenceAbort!.signal);
+      })
       .then(result => {
         clearTimeout(timeoutId);
         if (requestId !== inferenceRequestId) return;
-
-        if (!touchedFields.has('name') && result.name) {
-          const el = $maybe('f-name') as HTMLInputElement | null;
-          if (el) el.value = result.name;
-        }
-        if (!touchedFields.has('description') && result.description) {
-          const el = $maybe('f-description') as HTMLTextAreaElement | null;
-          if (el) el.value = result.description;
-        }
-        if (!touchedFields.has('category') && result.categoryGroup) {
-          const groupSel = $maybe('f-cat-group') as HTMLSelectElement | null;
-          if (groupSel) {
-            groupSel.value = result.categoryGroup;
-            const valSel = $maybe('f-cat-value') as HTMLSelectElement | null;
-            if (valSel) {
-              valSel.innerHTML = categoryValueOptions(result.categoryGroup!);
-              if (result.categoryValue) valSel.value = result.categoryValue;
-            }
-          }
-        }
-        if (!touchedFields.has('color') && result.color) {
-          const el = $maybe('f-color') as HTMLInputElement | null;
-          if (el) el.value = result.color;
-          const swatch = $maybe('f-color-swatch');
-          if (swatch) (swatch as HTMLElement).style.background = result.color;
-        }
-        if (!touchedFields.has('tags') && result.tags?.length) {
-          const el = $maybe('f-tags') as HTMLInputElement | null;
-          if (el && !el.value.trim()) el.value = result.tags.join(', ');
-        }
+        applyInferenceResult(result);
       })
       .catch(err => {
         clearTimeout(timeoutId);
@@ -1124,10 +1219,12 @@ function openItemForm(itemId: string | null = null): void {
     pendingPhoto.file = 'REMOVE';
     pendingPhoto.oldPath = it.photoPath ?? null;
     $('f-photo-preview').innerHTML = iconForCategory(it.category?.group, it.category?.value);
+    inferenceBase64 = null;
     if (inferenceAbort) {
       inferenceAbort.abort();
       inferenceAbort = null;
     }
+    if (reInferTimer) clearTimeout(reInferTimer);
     const statusEl = $maybe('f-inference-status');
     if (statusEl) statusEl.classList.add('hidden');
   });

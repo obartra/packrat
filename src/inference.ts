@@ -47,10 +47,10 @@ ${buildTaxonomyString()}
 
 Rules:
 - name: concise product name, specific enough to distinguish from similar items (e.g. "Navy polo shirt" not just "shirt")
-- description: 1-2 sentence factual description with packing-relevant detail. Must add information beyond what's in the name — don't restate the name. Mention brand only if a logo or label is clearly visible. Mention material only if identifiable.
+- description: 1-2 sentence factual description with packing-relevant detail. Must add information beyond what's in the name — don't restate the name. Mention brand only if a logo or label is clearly visible. Mention material only if identifiable. Ignore how the item is displayed in the photo (e.g. folded, on a hanger, on a table) — describe only the item itself.
 - categoryGroup/categoryValue: use null if the item doesn't clearly fit the taxonomy
 - color: hex value of the item's dominant color (e.g. "#1B3A5C"), ignoring the background surface. For multi-color items pick the single most dominant color. Use null if not determinable.
-- tags: 2-5 keywords for search — include material, use case, season if applicable
+- tags: 2-5 lowercase keywords for search — include material, use case, season if applicable
 - Prefer common/simple terms ("t-shirt" not "crew-neck short-sleeve top")`;
 }
 
@@ -74,7 +74,16 @@ export async function callInferenceAPI(
   base64: string,
   apiKey: string,
   signal?: AbortSignal,
+  corrections?: Record<string, string>,
 ): Promise<InferenceResult> {
+  let userText = 'Identify this item for my packing inventory.';
+  if (corrections && Object.keys(corrections).length > 0) {
+    const lines = Object.entries(corrections)
+      .map(([field, value]) => `- ${field}: ${value}`)
+      .join('\n');
+    userText += `\n\nThe user has corrected some fields. Treat these as ground truth and adjust your other assessments accordingly:\n${lines}`;
+  }
+
   const res = await fetch(AI_API_URL, {
     method: 'POST',
     signal,
@@ -96,7 +105,7 @@ export async function callInferenceAPI(
               type: 'image',
               source: { type: 'base64', media_type: 'image/jpeg', data: base64 },
             },
-            { type: 'text', text: 'Identify this item for my packing inventory.' },
+            { type: 'text', text: userText },
           ],
         },
       ],
