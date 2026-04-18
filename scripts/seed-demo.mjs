@@ -365,4 +365,51 @@ if (!dryRun) {
   }
 }
 
-console.log(`\nDone! Created ${containers.length} containers, ${items.length} items, 2 lists.`);
+// Create trips
+const beachTrip = db.collection(`${userPath}/trips`).doc();
+console.log(`  + trip: Cancún Beach Getaway (${beachTrip.id})`);
+
+if (!dryRun) {
+  await beachTrip.set({
+    name: 'Cancún Beach Getaway',
+    destination: 'Cancún, Mexico',
+    location: { lat: 21.1619, lng: -86.8515 },
+    startMonth: 6, // July
+    startYear: 2026,
+    durationCount: 1,
+    durationUnit: 'weeks',
+    activities: ['Beach', 'Diving'],
+    notes: 'Summer beach vacation — pack light!',
+    candidateItemIds: [itemIds[6], itemIds[7], itemIds[3], itemIds[0]], // towel, trunks, chinos, boots
+    yearClimate: null,
+    aiResult: null,
+    aiGeneratedAt: null,
+    createdAt: now,
+    updatedAt: now,
+  });
+}
+
+const bizTrip = db.collection(`${userPath}/trips`).doc();
+console.log(`  + trip: NYC Business Trip (${bizTrip.id})`);
+
+if (!dryRun) {
+  await bizTrip.set({
+    name: 'NYC Business Trip',
+    destination: 'New York, NY',
+    location: { lat: 40.7128, lng: -74.006 },
+    startMonth: 9, // October
+    startYear: 2026,
+    durationCount: 3,
+    durationUnit: 'days',
+    activities: ['Business', 'City', 'Formal'],
+    notes: 'Client meetings — bring formal attire',
+    candidateItemIds: [itemIds[4], itemIds[5], itemIds[2], itemIds[3], itemIds[8]], // jacket, trousers, tie, chinos, puffer
+    yearClimate: null,
+    aiResult: null,
+    aiGeneratedAt: null,
+    createdAt: now,
+    updatedAt: now,
+  });
+}
+
+console.log(`\nDone! Created ${containers.length} containers, ${items.length} items, 2 lists, 2 trips.`);
