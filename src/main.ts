@@ -451,8 +451,8 @@ function renderContainersView() {
       <div class="card container-card" data-id="${c.id}" data-action="open-container">
         <div class="card-photo">
           ${
-            c.photoPath
-              ? `<img data-photo="${esc(c.photoPath)}" alt="${esc(c.name)}">`
+            c.photoThumb
+              ? `<img src="${c.photoThumb}" alt="${esc(c.name)}">`
               : `<div class="no-photo-icon">${icon}</div>`
           }
         </div>
@@ -569,13 +569,16 @@ async function saveContainerForm(existingId: string | null): Promise<void> {
     if (pendingPhoto.file === 'REMOVE') {
       await deletePhotoIfExists(pendingPhoto.oldPath);
       data['photoPath'] = null;
+      data['photoThumb'] = null;
     } else if (pendingPhoto.file) {
       await deletePhotoIfExists(existingId ? store.containers.get(existingId)?.photoPath : null);
       const path = `${userPath()}/containers/${docId}.jpg`;
-      await resizeAndUpload(pendingPhoto.file, path);
+      const { thumb } = await resizeAndUpload(pendingPhoto.file, path);
       data['photoPath'] = path;
+      data['photoThumb'] = thumb;
     } else {
       data['photoPath'] = existingId ? (store.containers.get(existingId)?.photoPath ?? null) : null;
+      data['photoThumb'] = existingId ? (store.containers.get(existingId)?.photoThumb ?? null) : null;
     }
 
     if (existingId) {
@@ -806,7 +809,7 @@ function renderItemRow(it: Item): string {
   return `
     <div class="item-row" data-action="open-item" data-id="${it.id}">
       <div class="item-thumb">
-        ${it.photoPath ? `<img data-photo="${esc(it.photoPath)}" alt="${esc(it.name)}">` : `<span>${icon}</span>`}
+        ${it.photoThumb ? `<img src="${it.photoThumb}" alt="${esc(it.name)}">` : `<span>${icon}</span>`}
       </div>
       <div class="item-info">
         <div class="item-name">${it.color ? `<span class="color-dot" style="background:${esc(it.color)}"></span> ` : ''}${esc(it.name)}</div>
@@ -1282,13 +1285,16 @@ async function saveItemForm(existingId: string | null): Promise<void> {
         pendingPhoto.oldPath || (existingId ? store.items.get(existingId)?.photoPath : null),
       );
       data['photoPath'] = null;
+      data['photoThumb'] = null;
     } else if (pendingPhoto.file) {
       await deletePhotoIfExists(existingId ? store.items.get(existingId)?.photoPath : null);
       const path = `${userPath()}/items/${docId}.jpg`;
-      await resizeAndUpload(pendingPhoto.file, path);
+      const { thumb } = await resizeAndUpload(pendingPhoto.file, path);
       data['photoPath'] = path;
+      data['photoThumb'] = thumb;
     } else {
       data['photoPath'] = existingId ? (store.items.get(existingId)?.photoPath ?? null) : null;
+      data['photoThumb'] = existingId ? (store.items.get(existingId)?.photoThumb ?? null) : null;
     }
 
     if (existingId) {
