@@ -3679,20 +3679,20 @@ function renderSettingsView() {
     );
   });
 
-  $('btn-import-csv')?.addEventListener('click', () => {
+  $maybe('btn-import-csv')?.addEventListener('click', () => {
     $('file-csv').click();
   });
 
-  $('btn-csv-template')?.addEventListener('click', downloadCSVTemplate);
+  $maybe('btn-csv-template')?.addEventListener('click', downloadCSVTemplate);
 
-  renderActivitiesList();
-  $('btn-add-activity')?.addEventListener('click', () => {
+  if (!demo) renderActivitiesList();
+  $maybe('btn-add-activity')?.addEventListener('click', () => {
     void addActivityFromInput();
   });
-  $('settings-new-activity')?.addEventListener('keydown', e => {
+  $maybe('settings-new-activity')?.addEventListener('keydown', e => {
     if ((e as KeyboardEvent).key === 'Enter') void addActivityFromInput();
   });
-  $('btn-reset-activities')?.addEventListener('click', () => {
+  $maybe('btn-reset-activities')?.addEventListener('click', () => {
     showConfirm(
       'Reset activities to the defaults?',
       async () => {
