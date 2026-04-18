@@ -10,6 +10,7 @@
  *   --dry-run   Show what would be updated without writing
  *   --verify    Generate an HTML report of all thumbnails
  *   --nobg      Also run background removal for items (slow, ~5-10s per photo)
+ *   --rethumb   Force-regenerate all thumbnails (e.g. after size change)
  *
  * Requires: npm install -D firebase-admin sharp @imgly/background-removal-node
  */
@@ -36,6 +37,7 @@ const args = process.argv.slice(2);
 const dryRun = args.includes('--dry-run');
 const verify = args.includes('--verify');
 const doNobg = args.includes('--nobg');
+const rethumb = args.includes('--rethumb');
 
 const bucket =
   process.env.FIREBASE_STORAGE_BUCKET || process.env.VITE_FIREBASE_STORAGE_BUCKET;
@@ -61,9 +63,9 @@ async function downloadPhoto(storagePath) {
   return buffer;
 }
 
-async function generateThumb(buffer) {
+async function generateThumb(buffer, size = 80) {
   const thumbBuffer = await sharp(buffer)
-    .resize(80, 80, { fit: 'inside' })
+    .resize(size, size, { fit: 'inside' })
     .jpeg({ quality: 40 })
     .toBuffer();
   return `data:image/jpeg;base64,${thumbBuffer.toString('base64')}`;
@@ -103,7 +105,7 @@ async function backfillCollection(userPath, collection, withNobg) {
     const data = docSnap.data();
     if (!data.photoPath) { skipped++; continue; }
 
-    const needsThumb = !data.photoThumb;
+    const needsThumb = !data.photoThumb || rethumb;
     const needsNobg = withNobg && collection === 'items' && !data.photoNobgPath;
     if (!needsThumb && !needsNobg) { skipped++; continue; }
 
@@ -121,7 +123,8 @@ async function backfillCollection(userPath, collection, withNobg) {
       const update = {};
 
       if (needsThumb) {
-        update.photoThumb = await generateThumb(buffer);
+        const thumbSize = collection === 'containers' ? 400 : 80;
+        update.photoThumb = await generateThumb(buffer, thumbSize);
       }
       if (needsNobg) {
         const { nobgPath, nobgThumb } = await generateNobg(buffer, data.photoPath);
