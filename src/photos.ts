@@ -29,7 +29,10 @@ export async function resizeAndUpload(
   file: File,
   path: string,
 ): Promise<{ url: string; thumb: string }> {
-  const [canvas, thumb] = await Promise.all([resizeToCanvas(file, 1400), generateThumbDataUrl(file)]);
+  const [canvas, thumb] = await Promise.all([
+    resizeToCanvas(file, 1400),
+    generateThumbDataUrl(file),
+  ]);
   return new Promise<{ url: string; thumb: string }>((resolve, reject) => {
     canvas.toBlob(
       async blob => {

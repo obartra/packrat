@@ -621,7 +621,9 @@ async function saveContainerForm(existingId: string | null): Promise<void> {
       data['photoThumb'] = thumb;
     } else {
       data['photoPath'] = existingId ? (store.containers.get(existingId)?.photoPath ?? null) : null;
-      data['photoThumb'] = existingId ? (store.containers.get(existingId)?.photoThumb ?? null) : null;
+      data['photoThumb'] = existingId
+        ? (store.containers.get(existingId)?.photoThumb ?? null)
+        : null;
     }
 
     if (existingId) {
@@ -920,8 +922,10 @@ function renderColorChips(): void {
       .join('');
 }
 
-const VIEW_ICON_GRID = '<rect x="1" y="1" width="6" height="6" rx="1"/><rect x="11" y="1" width="6" height="6" rx="1"/><rect x="1" y="11" width="6" height="6" rx="1"/><rect x="11" y="11" width="6" height="6" rx="1"/>';
-const VIEW_ICON_LIST = '<line x1="1" y1="3" x2="17" y2="3"/><line x1="1" y1="9" x2="17" y2="9"/><line x1="1" y1="15" x2="17" y2="15"/>';
+const VIEW_ICON_GRID =
+  '<rect x="1" y="1" width="6" height="6" rx="1"/><rect x="11" y="1" width="6" height="6" rx="1"/><rect x="1" y="11" width="6" height="6" rx="1"/><rect x="11" y="11" width="6" height="6" rx="1"/>';
+const VIEW_ICON_LIST =
+  '<line x1="1" y1="3" x2="17" y2="3"/><line x1="1" y1="9" x2="17" y2="9"/><line x1="1" y1="15" x2="17" y2="15"/>';
 
 function updateViewToggleIcon(): void {
   const svg = $maybe('view-toggle-icon');
@@ -1444,8 +1448,12 @@ async function saveItemForm(existingId: string | null): Promise<void> {
     } else {
       data['photoPath'] = existingId ? (store.items.get(existingId)?.photoPath ?? null) : null;
       data['photoThumb'] = existingId ? (store.items.get(existingId)?.photoThumb ?? null) : null;
-      data['photoNobgPath'] = existingId ? (store.items.get(existingId)?.photoNobgPath ?? null) : null;
-      data['photoNobgThumb'] = existingId ? (store.items.get(existingId)?.photoNobgThumb ?? null) : null;
+      data['photoNobgPath'] = existingId
+        ? (store.items.get(existingId)?.photoNobgPath ?? null)
+        : null;
+      data['photoNobgThumb'] = existingId
+        ? (store.items.get(existingId)?.photoNobgThumb ?? null)
+        : null;
     }
 
     if (existingId) {

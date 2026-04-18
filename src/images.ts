@@ -64,5 +64,7 @@ export async function generateThumbDataUrl(
   quality = 0.4,
 ): Promise<string> {
   const canvas = await resizeToCanvas(source, size);
-  return format === 'image/png' ? canvas.toDataURL('image/png') : canvas.toDataURL('image/jpeg', quality);
+  return format === 'image/png'
+    ? canvas.toDataURL('image/png')
+    : canvas.toDataURL('image/jpeg', quality);
 }
