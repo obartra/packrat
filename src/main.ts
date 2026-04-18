@@ -156,6 +156,38 @@ function setApiKey(k: string): void {
 type TempUnit = 'celsius' | 'fahrenheit';
 const TEMP_UNIT_KEY = 'packrat_units';
 const LAST_CONTAINER_KEY = 'packrat_last_container';
+
+const THUMB_BG_KEY = 'packrat_thumb_bg';
+const THUMB_BACKGROUNDS: Record<string, { label: string; css: string }> = {
+  wood: {
+    label: 'Wood',
+    css: 'linear-gradient(135deg, #deb887 0%, #c8a87a 25%, #d4a574 50%, #c2956b 75%, #deb887 100%)',
+  },
+  'dark-wood': {
+    label: 'Dark wood',
+    css: 'linear-gradient(135deg, #5c3d2e 0%, #6b4735 25%, #5a3828 50%, #6b4735 75%, #5c3d2e 100%)',
+  },
+  marble: {
+    label: 'Marble',
+    css: 'linear-gradient(135deg, #f0ece4 0%, #e8e0d4 30%, #f2ede5 50%, #e5ddd0 70%, #f0ece4 100%)',
+  },
+  metal: {
+    label: 'Metal',
+    css: 'linear-gradient(135deg, #c0c0c0 0%, #d8d8d8 25%, #b8b8b8 50%, #d0d0d0 75%, #c0c0c0 100%)',
+  },
+  slate: {
+    label: 'Slate',
+    css: 'linear-gradient(135deg, #4a5568 0%, #576475 25%, #3d4a5c 50%, #576475 75%, #4a5568 100%)',
+  },
+  none: { label: 'None', css: 'var(--border-light)' },
+};
+function getThumbBg(): string {
+  return localStorage.getItem(THUMB_BG_KEY) || 'wood';
+}
+function getThumbBgCss(): string {
+  return THUMB_BACKGROUNDS[getThumbBg()]?.css ?? THUMB_BACKGROUNDS['wood']!.css;
+}
+
 function getTempUnit(): TempUnit {
   return localStorage.getItem(TEMP_UNIT_KEY) === 'fahrenheit' ? 'fahrenheit' : 'celsius';
 }
@@ -812,10 +844,12 @@ function applyItemFilters(): void {
 
 function renderItemRow(it: Item): string {
   const icon = iconForCategory(it.category?.group, it.category?.value);
+  const thumbSrc = it.photoNobgThumb || it.photoThumb;
+  const thumbBg = it.photoNobgThumb ? `background:${getThumbBgCss()}` : '';
   return `
     <div class="item-row" data-action="open-item" data-id="${it.id}">
-      <div class="item-thumb">
-        ${it.photoThumb ? `<img src="${it.photoThumb}" alt="${esc(it.name)}">` : it.photoPath ? `<img data-photo="${esc(it.photoPath)}" alt="${esc(it.name)}">` : `<span>${icon}</span>`}
+      <div class="item-thumb"${thumbBg ? ` style="${thumbBg}"` : ''}>
+        ${thumbSrc ? `<img src="${thumbSrc}" alt="${esc(it.name)}"${it.photoNobgThumb ? ' class="nobg-thumb"' : ''}>` : it.photoPath ? `<img data-photo="${esc(it.photoPath)}" alt="${esc(it.name)}">` : `<span>${icon}</span>`}
       </div>
       <div class="item-info">
         <div class="item-name">${it.color ? `<span class="color-dot" style="background:${esc(it.color)}"></span> ` : ''}${esc(it.name)}</div>
@@ -2966,6 +3000,25 @@ function renderSettingsView() {
     </div>
 
     <div class="settings-group">
+      <div class="settings-group-title">Appearance</div>
+      <div class="settings-row" style="flex-direction:column;align-items:flex-start;gap:8px">
+        <div class="settings-row-label">Thumbnail background</div>
+        <div class="settings-row-sub">Background shown behind items with transparent photos</div>
+        <div class="thumb-bg-picker" id="thumb-bg-picker">
+          ${Object.entries(THUMB_BACKGROUNDS)
+            .map(
+              ([key, { label, css }]) =>
+                `<button class="thumb-bg-opt${getThumbBg() === key ? ' active' : ''}" data-bg="${key}" title="${label}">
+                  <span class="thumb-bg-swatch" style="background:${css}"></span>
+                  <span>${label}</span>
+                </button>`,
+            )
+            .join('')}
+        </div>
+      </div>
+    </div>
+
+    <div class="settings-group">
       <div class="settings-group-title">Units</div>
       <div class="settings-row" style="flex-direction:column;align-items:flex-start;gap:8px">
         <div class="settings-row-label">Temperature</div>
@@ -3068,6 +3121,16 @@ function renderSettingsView() {
         statusEl.style.color = 'var(--danger, #c62828)';
       }
       showToast('Could not reach Anthropic API', 'error');
+    }
+  });
+
+  $maybe('thumb-bg-picker')?.addEventListener('click', e => {
+    const btn = (e.target as HTMLElement).closest<HTMLButtonElement>('.thumb-bg-opt');
+    if (!btn) return;
+    const bg = btn.dataset['bg'];
+    if (bg) {
+      localStorage.setItem(THUMB_BG_KEY, bg);
+      renderSettingsView();
     }
   });
 

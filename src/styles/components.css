@@ -262,6 +262,46 @@
   object-fit: cover;
   display: block;
 }
+.item-row .item-thumb img.nobg-thumb {
+  object-fit: contain;
+  padding: 4px;
+}
+
+/* Thumbnail background picker (Settings) */
+.thumb-bg-picker {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.thumb-bg-opt {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 6px 8px;
+  border: 2px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface);
+  cursor: pointer;
+  font-size: 11px;
+  color: var(--text-secondary);
+  transition: border-color var(--transition), color var(--transition);
+}
+.thumb-bg-opt:hover {
+  border-color: var(--text-tertiary);
+}
+.thumb-bg-opt.active {
+  border-color: var(--accent);
+  color: var(--accent);
+  font-weight: 600;
+}
+.thumb-bg-swatch {
+  display: block;
+  width: 36px;
+  height: 36px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+}
 .item-row .item-info {
   flex: 1;
   min-width: 0;
