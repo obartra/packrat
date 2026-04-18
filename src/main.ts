@@ -338,6 +338,18 @@ function getThumbBgCss(): string {
   return THUMB_BACKGROUNDS[getThumbBg()]?.css ?? THUMB_BACKGROUNDS['wood']!.css;
 }
 
+const DEMO_EMAIL = 'demo@packrat.app';
+function isDemoUser(): boolean {
+  return store.user?.email === DEMO_EMAIL;
+}
+function guardDemo(): boolean {
+  if (isDemoUser()) {
+    showToast('Demo account is read-only — sign up to create your own!', 'error', 3000);
+    return true;
+  }
+  return false;
+}
+
 function getTempUnit(): TempUnit {
   return localStorage.getItem(TEMP_UNIT_KEY) === 'fahrenheit' ? 'fahrenheit' : 'celsius';
 }
@@ -396,6 +408,20 @@ $('login-form').addEventListener('submit', async e => {
     loginErrorEl().textContent = msg.replace('Firebase: ', '').replace(/ \(auth\/.*\)/, '');
     btn.disabled = false;
     btn.textContent = loginMode === 'signin' ? 'Sign In' : 'Create Account';
+  }
+});
+
+$('btn-demo-login').addEventListener('click', async () => {
+  const btn = $<HTMLButtonElement>('btn-demo-login');
+  btn.disabled = true;
+  btn.textContent = '...';
+  try {
+    await signInWithEmailAndPassword(auth, DEMO_EMAIL, 'demopackrat');
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    loginErrorEl().textContent = msg.replace('Firebase: ', '').replace(/ \(auth\/.*\)/, '');
+    btn.disabled = false;
+    btn.textContent = 'Try the demo';
   }
 });
 
@@ -663,7 +689,7 @@ function renderContainersView() {
     .forEach(img => lazyLoadPhoto(img, img.dataset['photo']));
 }
 
-$('btn-add-container').addEventListener('click', () => openContainerForm());
+$('btn-add-container').addEventListener('click', () => { if (!guardDemo()) openContainerForm(); });
 
 // ============================================================
 //  CONTAINERS — open/save form
@@ -1102,7 +1128,7 @@ function updateViewToggleIcon(): void {
   if (svg) svg.innerHTML = itemsViewMode === 'list' ? VIEW_ICON_GRID : VIEW_ICON_LIST;
 }
 
-$('btn-add-item').addEventListener('click', () => openItemForm());
+$('btn-add-item').addEventListener('click', () => { if (!guardDemo()) openItemForm(); });
 
 $('items-search').addEventListener('input', applyItemFilters);
 $('items-filter-container').addEventListener('change', applyItemFilters);
@@ -1720,7 +1746,7 @@ function renderListsView() {
     .join('');
 }
 
-$('btn-add-list').addEventListener('click', () => openListForm());
+$('btn-add-list').addEventListener('click', () => { if (!guardDemo()) openListForm(); });
 
 function openListForm(listId: string | null = null): void {
   const l: Partial<List> = listId ? (store.lists.get(listId) ?? {}) : {};
@@ -2048,7 +2074,7 @@ function renderTripsView(): void {
 }
 
 $('btn-add-trip').addEventListener('click', () => {
-  showView('trip-wizard');
+  if (!guardDemo()) showView('trip-wizard');
 });
 
 // ============================================================
@@ -3302,8 +3328,16 @@ async function deleteAllUserData(alsoDeleteAccount: boolean): Promise<void> {
 
 function renderSettingsView() {
   const key = getApiKey();
+  const demo = isDemoUser();
   $('settings-content').innerHTML = `
-    <div class="settings-group">
+    ${demo ? `<div class="settings-group" style="background:var(--accent-light);border:1px solid var(--accent)">
+      <div class="settings-row" style="flex-direction:column;align-items:flex-start;gap:4px">
+        <div class="settings-row-label" style="color:var(--accent)">Demo Account</div>
+        <div class="settings-row-sub">You're browsing a read-only demo. Sign up to create your own inventory!</div>
+      </div>
+    </div>` : ''}
+
+    ${!demo ? `<div class="settings-group">
       <div class="settings-group-title">AI</div>
       <div class="settings-row" style="flex-direction:column;align-items:flex-start;gap:8px">
         <div class="settings-row-label">Anthropic API Key</div>
@@ -3320,7 +3354,7 @@ function renderSettingsView() {
           <div class="settings-row-sub" style="font-family:monospace;font-size:12px">${AI_MODEL}</div>
         </div>
       </div>
-    </div>
+    </div>` : ''}
 
     <div class="settings-group">
       <div class="settings-group-title">Appearance</div>
@@ -3367,7 +3401,7 @@ function renderSettingsView() {
       </div>
     </div>
 
-    <div class="settings-group">
+    ${!demo ? `<div class="settings-group">
       <div class="settings-group-title">Activities</div>
       <div class="settings-row" style="flex-direction:column;align-items:flex-start;gap:8px">
         <div class="settings-row-label">Trip activities</div>
@@ -3392,7 +3426,7 @@ function renderSettingsView() {
         </div>
         <div id="csv-import-area" style="width:100%"></div>
       </div>
-    </div>
+    </div>` : ''}
 
     <div class="settings-group">
       <div class="settings-group-title">Account</div>
@@ -3402,7 +3436,7 @@ function renderSettingsView() {
       </div>
     </div>
 
-    <div class="settings-group danger-zone">
+    ${!demo ? `<div class="settings-group danger-zone">
       <div class="settings-group-title">Danger Zone</div>
       <div class="settings-row" style="flex-direction:column;align-items:flex-start;gap:8px">
         <div>
@@ -3418,7 +3452,7 @@ function renderSettingsView() {
         </div>
         <button class="btn-danger" id="btn-delete-account">Delete Account</button>
       </div>
-    </div>
+    </div>` : ''}
 
     <div style="text-align:center;color:var(--text-tertiary);font-size:12px;padding:24px 0">
       Packrat build ${__APP_VERSION__}
@@ -3758,15 +3792,16 @@ document.addEventListener('click', async e => {
       showView('list', { id });
       break;
     case 'edit-container':
-      openContainerForm(id);
+      if (!guardDemo()) openContainerForm(id);
       break;
     case 'edit-item':
-      openItemForm(id);
+      if (!guardDemo()) openItemForm(id);
       break;
     case 'edit-list':
-      openListForm(id);
+      if (!guardDemo()) openListForm(id);
       break;
     case 'delete-container':
+      if (guardDemo()) break;
       showConfirm(
         `Delete "${store.containers.get(id)?.name}"? Items inside will be unassigned.`,
         async () => {
@@ -3777,35 +3812,42 @@ document.addEventListener('click', async e => {
       );
       break;
     case 'delete-item':
+      if (guardDemo()) break;
       showConfirm(
         `Delete "${store.items.get(id)?.name}"? It will be removed from all packing lists.`,
         () => deleteItem(id),
       );
       break;
     case 'delete-list':
+      if (guardDemo()) break;
       showConfirm(`Delete list "${store.lists.get(id)?.name}"?`, () => deleteList(id));
       break;
     case 'add-entry':
+      if (guardDemo()) break;
       openAddEntrySheet(id);
       break;
     case 'pick-entry-item': {
+      if (guardDemo()) break;
       const listId = target.dataset['list'] ?? '';
       const itemId = target.dataset['item'] ?? '';
       await addEntryToList(listId, itemId);
       break;
     }
     case 'delete-entry': {
+      if (guardDemo()) break;
       const listId = target.dataset['list'] ?? '';
       const entryId = target.dataset['entry'] ?? '';
       await removeEntryFromList(listId, entryId);
       break;
     }
     case 'entry-up': {
+      if (guardDemo()) break;
       const listId = target.dataset['list'] ?? '';
       await reorderListEntry(listId, target.dataset['entry'] ?? '', 'up');
       break;
     }
     case 'entry-down': {
+      if (guardDemo()) break;
       const listId = target.dataset['list'] ?? '';
       await reorderListEntry(listId, target.dataset['entry'] ?? '', 'down');
       break;
@@ -3818,16 +3860,16 @@ document.addEventListener('click', async e => {
       showView('trip', { id });
       break;
     case 'edit-trip':
-      showView('trip-edit', { id });
+      if (!guardDemo()) showView('trip-edit', { id });
       break;
     case 'delete-trip':
-      await deleteTripConfirm(id);
+      if (!guardDemo()) await deleteTripConfirm(id);
       break;
     case 'regenerate-trip':
-      await regenerateTripRecs(id);
+      if (!guardDemo()) await regenerateTripRecs(id);
       break;
     case 'save-trip-as-list':
-      await saveTripAsList(id);
+      if (!guardDemo()) await saveTripAsList(id);
       break;
   }
 });
@@ -3836,7 +3878,7 @@ document.addEventListener('click', async e => {
 document.addEventListener('change', async e => {
   const src = e.target as HTMLElement | null;
   const inp = src?.closest<HTMLInputElement>('[data-action="entry-qty"]');
-  if (!inp) return;
+  if (!inp || guardDemo()) return;
   await updateEntryQty(inp.dataset['list'] ?? '', inp.dataset['entry'] ?? '', inp.value);
 });
 

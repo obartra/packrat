@@ -141,6 +141,21 @@
   text-align: center;
 }
 
+.demo-login-btn {
+  display: block;
+  margin: 16px auto 0;
+  padding: 10px 24px;
+  border-radius: var(--radius-sm);
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--accent);
+  background: none;
+  cursor: pointer;
+}
+.demo-login-btn:hover {
+  text-decoration: underline;
+}
+
 /* === DETAIL VIEWS === */
 .detail-section {
   background: var(--surface);
