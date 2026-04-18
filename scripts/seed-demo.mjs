@@ -22,7 +22,7 @@ import { getStorage } from 'firebase-admin/storage';
 import sharp from 'sharp';
 
 const __dir = dirname(fileURLToPath(import.meta.url));
-const demoDir = resolve(__dir, '..', 'public', 'demo');
+const demoDir = resolve(__dir, 'demo-assets');
 
 // Load .env.local
 const envPath = resolve(__dir, '..', '.env.local');
@@ -112,7 +112,7 @@ async function uploadNobgPng(localPath, storagePath) {
 
 const containers = [
   {
-    file: 'suitcase1.png',
+    file: 'suitcase1.webp',
     data: {
       name: 'Beach Suitcase',
       type: 'suitcase',
@@ -123,7 +123,7 @@ const containers = [
     },
   },
   {
-    file: 'suitcase2.png',
+    file: 'suitcase2.webp',
     data: {
       name: 'Leather Suitcase',
       type: 'suitcase',
@@ -138,7 +138,7 @@ const containers = [
 // Items: [file, name, category, color, tags, notes, containerIndex (0 or 1)]
 const items = [
   {
-    file: 'boots.png',
+    file: 'boots.webp',
     data: {
       name: 'Talavera Boots',
       category: { group: 'clothing', value: 'shoes' },
@@ -150,7 +150,7 @@ const items = [
     container: 1,
   },
   {
-    file: 'hat.png',
+    file: 'hat.webp',
     data: {
       name: 'Winter Beanie',
       category: { group: 'clothing', value: 'accessories' },
@@ -162,7 +162,7 @@ const items = [
     container: 1,
   },
   {
-    file: 'necktie.png',
+    file: 'necktie.webp',
     data: {
       name: 'Striped Tie',
       category: { group: 'clothing', value: 'accessories' },
@@ -174,7 +174,7 @@ const items = [
     container: 1,
   },
   {
-    file: 'pants.png',
+    file: 'pants.webp',
     data: {
       name: 'Chinos',
       category: { group: 'clothing', value: 'bottoms' },
@@ -186,7 +186,7 @@ const items = [
     container: 1,
   },
   {
-    file: 'suitjacket.png',
+    file: 'suitjacket.webp',
     data: {
       name: 'Suit Jacket',
       category: { group: 'clothing', value: 'tops' },
@@ -198,7 +198,7 @@ const items = [
     container: 1,
   },
   {
-    file: 'suitpants.png',
+    file: 'suitpants.webp',
     data: {
       name: 'Suit Trousers',
       category: { group: 'clothing', value: 'bottoms' },
@@ -210,7 +210,7 @@ const items = [
     container: 1,
   },
   {
-    file: 'towel.png',
+    file: 'towel.webp',
     data: {
       name: 'Beach Towel',
       category: { group: 'travel', value: 'comfort' },
@@ -222,7 +222,7 @@ const items = [
     container: 0,
   },
   {
-    file: 'trunks.png',
+    file: 'trunks.webp',
     data: {
       name: 'Swim Trunks',
       category: { group: 'clothing', value: 'swimwear' },
@@ -234,7 +234,7 @@ const items = [
     container: 0,
   },
   {
-    file: 'winter jacket.png',
+    file: 'winter jacket.webp',
     data: {
       name: 'Puffer Jacket',
       category: { group: 'clothing', value: 'outerwear' },
