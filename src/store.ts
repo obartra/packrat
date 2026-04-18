@@ -183,6 +183,19 @@ export function setupListeners(): void {
  * unchanged. In-memory only — does not rewrite Firestore.
  */
 function migrateTrip(raw: Record<string, unknown>): Trip {
+  // Migrate location from { lat, lng } to { latitude, longitude, name, country }
+  if (raw.location && typeof raw.location === 'object') {
+    const loc = raw.location as Record<string, unknown>;
+    if ('lat' in loc && !('latitude' in loc)) {
+      raw.location = {
+        latitude: loc.lat as number,
+        longitude: loc.lng as number,
+        name: typeof raw.destination === 'string' ? (raw.destination as string) : '',
+        country: '',
+      };
+    }
+  }
+
   if ('startMonth' in raw && 'durationCount' in raw) return raw as unknown as Trip;
   const legacyMonths = Array.isArray(raw.months) ? (raw.months as number[]) : [];
   const legacyYear = typeof raw.year === 'number' ? (raw.year as number) : new Date().getFullYear();
