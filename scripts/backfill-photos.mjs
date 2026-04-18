@@ -63,7 +63,7 @@ async function downloadPhoto(storagePath) {
   return buffer;
 }
 
-async function generateThumb(buffer, size = 80) {
+async function generateThumb(buffer, size = 100) {
   const thumbBuffer = await sharp(buffer)
     .resize(size, size, { fit: 'inside' })
     .jpeg({ quality: 40 })
@@ -87,7 +87,7 @@ async function generateNobg(buffer, storagePath) {
 
   // Generate no-bg thumbnail
   const nobgThumbBuffer = await sharp(resultBuffer)
-    .resize(80, 80, { fit: 'inside' })
+    .resize(100, 100, { fit: 'inside' })
     .png()
     .toBuffer();
   const nobgThumb = `data:image/png;base64,${nobgThumbBuffer.toString('base64')}`;
@@ -123,7 +123,7 @@ async function backfillCollection(userPath, collection, withNobg) {
       const update = {};
 
       if (needsThumb) {
-        const thumbSize = collection === 'containers' ? 400 : 80;
+        const thumbSize = collection === 'containers' ? 400 : 100;
         update.photoThumb = await generateThumb(buffer, thumbSize);
       }
       if (needsNobg) {

@@ -28,7 +28,7 @@ export const photoUrlCache = new Map<string, string>();
 export async function resizeAndUpload(
   file: File,
   path: string,
-  thumbSize = 80,
+  thumbSize = 100,
 ): Promise<{ url: string; thumb: string }> {
   const [canvas, thumb] = await Promise.all([
     resizeToCanvas(file, 1400),

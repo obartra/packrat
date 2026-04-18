@@ -830,6 +830,14 @@
   font-size: 18px;
 }
 
+/* Danger Zone */
+.danger-zone {
+  border: 1px solid var(--danger);
+}
+.danger-zone .settings-group-title {
+  color: var(--danger);
+}
+
 /* CSV Preview */
 .csv-preview-table {
   width: 100%;
@@ -969,15 +977,6 @@
   }
 }
 @media (min-width: 768px) {
-  .view-scroll {
-    width: 100%;
-    max-width: 640px;
-    margin: 0 auto;
-  }
-  .items-toolbar {
-    max-width: 640px;
-    margin: 0 auto;
-  }
   .sheet {
     max-width: 480px;
     left: 50%;

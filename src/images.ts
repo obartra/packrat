@@ -59,7 +59,7 @@ export async function resizeBlobPng(blob: Blob, maxSize: number): Promise<Blob> 
 /** Generate a small JPEG data URL for inline thumbnails (~2-3KB). */
 export async function generateThumbDataUrl(
   source: Blob,
-  size = 80,
+  size = 100,
   format: 'image/jpeg' | 'image/png' = 'image/jpeg',
   quality = 0.4,
 ): Promise<string> {
