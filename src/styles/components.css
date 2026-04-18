@@ -272,6 +272,19 @@
   display: flex;
   gap: 6px;
   flex-wrap: wrap;
+  align-items: center;
+}
+.theme-section-label {
+  width: 100%;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-tertiary);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  margin-top: 4px;
+}
+.theme-section-label:first-child {
+  margin-top: 0;
 }
 .theme-opt {
   display: flex;
@@ -303,6 +316,9 @@
   border-radius: 50%;
   border: 1px solid var(--border);
   flex-shrink: 0;
+}
+.theme-dot--dark {
+  border-color: rgba(0, 0, 0, 0.15);
 }
 
 /* Thumbnail background picker (Settings) */
