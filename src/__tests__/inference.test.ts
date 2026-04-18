@@ -355,4 +355,36 @@ describe('callInferenceAPI', () => {
     expect(body.system).toContain('travel');
     expect(body.system).toContain('food');
   });
+
+  it('includes corrections in user message when provided', async () => {
+    fetchMock.mockResolvedValueOnce(okResponse(validResult));
+    await callInferenceAPI('base64data', 'sk-ant-test', undefined, {
+      Name: 'Wool beanie',
+      Color: '#2B2B2B',
+    });
+
+    const body = JSON.parse(fetchMock.mock.calls[0]![1].body);
+    const textBlock = body.messages[0].content[1];
+    expect(textBlock.text).toContain('corrected');
+    expect(textBlock.text).toContain('Wool beanie');
+    expect(textBlock.text).toContain('#2B2B2B');
+  });
+
+  it('sends default user message without corrections', async () => {
+    fetchMock.mockResolvedValueOnce(okResponse(validResult));
+    await callInferenceAPI('base64data', 'sk-ant-test');
+
+    const body = JSON.parse(fetchMock.mock.calls[0]![1].body);
+    const textBlock = body.messages[0].content[1];
+    expect(textBlock.text).toBe('Identify this item for my packing inventory.');
+  });
+
+  it('ignores empty corrections object', async () => {
+    fetchMock.mockResolvedValueOnce(okResponse(validResult));
+    await callInferenceAPI('base64data', 'sk-ant-test', undefined, {});
+
+    const body = JSON.parse(fetchMock.mock.calls[0]![1].body);
+    const textBlock = body.messages[0].content[1];
+    expect(textBlock.text).toBe('Identify this item for my packing inventory.');
+  });
 });
