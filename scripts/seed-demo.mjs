@@ -382,8 +382,19 @@ if (!dryRun) {
     notes: 'Summer beach vacation — pack light!',
     candidateItemIds: [itemIds[6], itemIds[7], itemIds[3], itemIds[0]], // towel, trunks, chinos, boots
     yearClimate: null,
-    aiResult: null,
-    aiGeneratedAt: null,
+    aiResult: {
+      packingList: [
+        { itemId: itemIds[7], itemName: 'Swim Trunks', quantity: 1, container: 'Beach Suitcase', reason: 'Essential for beach days and diving excursions' },
+        { itemId: itemIds[6], itemName: 'Beach Towel', quantity: 1, container: 'Beach Suitcase', reason: 'Must-have for drying off after the ocean and pool' },
+        { itemId: itemIds[3], itemName: 'Chinos', quantity: 1, container: 'Beach Suitcase', reason: 'Versatile option for dinners out and exploring town' },
+      ],
+      missingEssentials: [
+        { name: 'Sunscreen', category: 'toiletries', suggestion: 'SPF 50+ reef-safe sunscreen — Cancún sun is intense in July' },
+        { name: 'Flip-flops', category: 'clothing', suggestion: 'Lightweight sandals for the beach and casual walks' },
+      ],
+      weatherNotes: 'Cancún in July is hot and humid (30–34°C / 86–93°F) with afternoon thunderstorms. Pack light, breathable fabrics and rain gear.',
+    },
+    aiGeneratedAt: now,
     createdAt: now,
     updatedAt: now,
   });
@@ -405,8 +416,21 @@ if (!dryRun) {
     notes: 'Client meetings — bring formal attire',
     candidateItemIds: [itemIds[4], itemIds[5], itemIds[2], itemIds[3], itemIds[8]], // jacket, trousers, tie, chinos, puffer
     yearClimate: null,
-    aiResult: null,
-    aiGeneratedAt: null,
+    aiResult: {
+      packingList: [
+        { itemId: itemIds[4], itemName: 'Suit Jacket', quantity: 1, container: 'Leather Suitcase', reason: 'Required for client meetings — pair with suit trousers' },
+        { itemId: itemIds[5], itemName: 'Suit Trousers', quantity: 1, container: 'Leather Suitcase', reason: 'Matching trousers for formal meetings' },
+        { itemId: itemIds[2], itemName: 'Striped Tie', quantity: 1, container: 'Leather Suitcase', reason: 'Adds polish for client-facing meetings' },
+        { itemId: itemIds[3], itemName: 'Chinos', quantity: 1, container: 'Leather Suitcase', reason: 'Comfortable option for travel days and casual dinners' },
+        { itemId: itemIds[8], itemName: 'Puffer Jacket', quantity: 1, container: 'Leather Suitcase', reason: 'October in NYC can be chilly — good for walking between meetings' },
+      ],
+      missingEssentials: [
+        { name: 'Dress shoes', category: 'clothing', suggestion: 'Leather oxfords or loafers to pair with the suit' },
+        { name: 'Laptop & charger', category: 'electronics', suggestion: 'Essential for business presentations and travel productivity' },
+      ],
+      weatherNotes: 'New York in October averages 12–18°C (54–64°F) with crisp fall weather. Layer up — mornings and evenings are cooler.',
+    },
+    aiGeneratedAt: now,
     createdAt: now,
     updatedAt: now,
   });

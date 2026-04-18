@@ -3375,12 +3375,12 @@ function renderSettingsView() {
       <div class="settings-group-title">Appearance</div>
       <div class="settings-row" style="flex-direction:column;align-items:flex-start;gap:8px">
         <div class="settings-row-label">Theme</div>
-        <div class="thumb-bg-picker" id="theme-picker">
+        <div class="theme-picker" id="theme-picker">
           ${Object.entries(THEMES)
             .map(
               ([key, { label, accent }]) =>
-                `<button class="thumb-bg-opt${getTheme() === key ? ' active' : ''}" data-theme="${key}" title="${label}">
-                  <span class="thumb-bg-swatch" style="background:${accent}"></span>
+                `<button class="theme-opt${getTheme() === key ? ' active' : ''}" data-theme="${key}" title="${label}">
+                  <span class="theme-dot" style="background:${accent}"></span>
                   <span>${label}</span>
                 </button>`,
             )
@@ -3527,7 +3527,7 @@ function renderSettingsView() {
   });
 
   $maybe('theme-picker')?.addEventListener('click', e => {
-    const btn = (e.target as HTMLElement).closest<HTMLButtonElement>('.thumb-bg-opt');
+    const btn = (e.target as HTMLElement).closest<HTMLButtonElement>('.theme-opt');
     if (!btn) return;
     const theme = btn.dataset['theme'];
     if (theme && theme in THEMES) {
