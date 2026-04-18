@@ -42,25 +42,33 @@ describe('buildInferenceSchema', () => {
     expect(props['tags']).toBeDefined();
   });
 
-  it('categoryGroup enum includes all groups plus null', () => {
+  it('categoryGroup uses anyOf with string enum and null', () => {
     const schema = buildInferenceSchema() as Record<string, unknown>;
     const props = schema['properties'] as Record<string, Record<string, unknown>>;
-    const groupEnum = props['categoryGroup']!['enum'] as unknown[];
+    const anyOf = props['categoryGroup']!['anyOf'] as Record<string, unknown>[];
+    expect(anyOf).toHaveLength(2);
+    const stringVariant = anyOf[0]!;
+    expect(stringVariant['type']).toBe('string');
+    const groupEnum = stringVariant['enum'] as string[];
     Object.keys(CATEGORIES).forEach(group => {
       expect(groupEnum).toContain(group);
     });
-    expect(groupEnum).toContain(null);
+    expect(anyOf[1]).toEqual({ type: 'null' });
   });
 
-  it('categoryValue enum includes all unique values plus null', () => {
+  it('categoryValue uses anyOf with string enum and null', () => {
     const schema = buildInferenceSchema() as Record<string, unknown>;
     const props = schema['properties'] as Record<string, Record<string, unknown>>;
-    const valueEnum = props['categoryValue']!['enum'] as unknown[];
+    const anyOf = props['categoryValue']!['anyOf'] as Record<string, unknown>[];
+    expect(anyOf).toHaveLength(2);
+    const stringVariant = anyOf[0]!;
+    expect(stringVariant['type']).toBe('string');
+    const valueEnum = stringVariant['enum'] as string[];
     const allValues = new Set(Object.values(CATEGORIES).flat());
     allValues.forEach(v => {
       expect(valueEnum).toContain(v);
     });
-    expect(valueEnum).toContain(null);
+    expect(anyOf[1]).toEqual({ type: 'null' });
   });
 
   it('disallows additional properties', () => {
@@ -71,18 +79,17 @@ describe('buildInferenceSchema', () => {
   it('categoryValue enum contains no duplicates', () => {
     const schema = buildInferenceSchema() as Record<string, unknown>;
     const props = schema['properties'] as Record<string, Record<string, unknown>>;
-    const valueEnum = props['categoryValue']!['enum'] as unknown[];
-    // Filter out null for uniqueness check on string values
-    const strings = valueEnum.filter((v): v is string => typeof v === 'string');
-    expect(new Set(strings).size).toBe(strings.length);
+    const anyOf = props['categoryValue']!['anyOf'] as Record<string, unknown>[];
+    const valueEnum = anyOf[0]!['enum'] as string[];
+    expect(new Set(valueEnum).size).toBe(valueEnum.length);
   });
 
   it('categoryGroup enum contains no duplicates', () => {
     const schema = buildInferenceSchema() as Record<string, unknown>;
     const props = schema['properties'] as Record<string, Record<string, unknown>>;
-    const groupEnum = props['categoryGroup']!['enum'] as unknown[];
-    const strings = groupEnum.filter((v): v is string => typeof v === 'string');
-    expect(new Set(strings).size).toBe(strings.length);
+    const anyOf = props['categoryGroup']!['anyOf'] as Record<string, unknown>[];
+    const groupEnum = anyOf[0]!['enum'] as string[];
+    expect(new Set(groupEnum).size).toBe(groupEnum.length);
   });
 
   it('all required fields are listed', () => {
@@ -102,7 +109,8 @@ describe('taxonomy ↔ schema consistency', () => {
     const taxonomy = buildTaxonomyString();
     const schema = buildInferenceSchema() as Record<string, unknown>;
     const props = schema['properties'] as Record<string, Record<string, unknown>>;
-    const groupEnum = props['categoryGroup']!['enum'] as unknown[];
+    const anyOf = props['categoryGroup']!['anyOf'] as Record<string, unknown>[];
+    const groupEnum = anyOf[0]!['enum'] as string[];
 
     taxonomy.split('\n').forEach(line => {
       const group = line.split(':')[0]!.trim();
@@ -114,7 +122,8 @@ describe('taxonomy ↔ schema consistency', () => {
     const taxonomy = buildTaxonomyString();
     const schema = buildInferenceSchema() as Record<string, unknown>;
     const props = schema['properties'] as Record<string, Record<string, unknown>>;
-    const valueEnum = props['categoryValue']!['enum'] as unknown[];
+    const anyOf = props['categoryValue']!['anyOf'] as Record<string, unknown>[];
+    const valueEnum = anyOf[0]!['enum'] as string[];
 
     taxonomy.split('\n').forEach(line => {
       const valPart = line.split(': ')[1];
@@ -142,7 +151,8 @@ describe('taxonomy ↔ schema consistency', () => {
     // Each shared value must still be in the enum exactly once
     const schema = buildInferenceSchema() as Record<string, unknown>;
     const props = schema['properties'] as Record<string, Record<string, unknown>>;
-    const valueEnum = props['categoryValue']!['enum'] as unknown[];
+    const anyOf = props['categoryValue']!['anyOf'] as Record<string, unknown>[];
+    const valueEnum = anyOf[0]!['enum'] as string[];
     shared.forEach(([val]) => {
       expect(valueEnum.filter(v => v === val)).toHaveLength(1);
     });
@@ -152,20 +162,18 @@ describe('taxonomy ↔ schema consistency', () => {
     const taxonomy = buildTaxonomyString();
     const schema = buildInferenceSchema() as Record<string, unknown>;
     const props = schema['properties'] as Record<string, Record<string, unknown>>;
-    const groupEnum = (props['categoryGroup']!['enum'] as unknown[]).filter(
-      (v): v is string => typeof v === 'string',
-    );
-    const valueEnum = (props['categoryValue']!['enum'] as unknown[]).filter(
-      (v): v is string => typeof v === 'string',
-    );
+    const groupAnyOf = props['categoryGroup']!['anyOf'] as Record<string, unknown>[];
+    const groupEnum = groupAnyOf[0]!['enum'] as string[];
+    const valueAnyOf = props['categoryValue']!['anyOf'] as Record<string, unknown>[];
+    const valueEnum = valueAnyOf[0]!['enum'] as string[];
 
     // Both should have exactly the groups from CATEGORIES
     const catGroups = Object.keys(CATEGORIES);
-    expect(groupEnum.sort()).toEqual(catGroups.sort());
+    expect([...groupEnum].sort()).toEqual(catGroups.sort());
 
     // Both should have exactly the values from CATEGORIES (deduplicated)
     const catValues = [...new Set(Object.values(CATEGORIES as CategoriesMap).flat())];
-    expect(valueEnum.sort()).toEqual(catValues.sort());
+    expect([...valueEnum].sort()).toEqual(catValues.sort());
 
     // Taxonomy should mention every group
     catGroups.forEach(g => expect(taxonomy).toContain(g));
