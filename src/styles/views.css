@@ -141,6 +141,21 @@
   text-align: center;
 }
 
+.demo-login-btn {
+  display: block;
+  margin: 16px auto 0;
+  padding: 10px 24px;
+  border-radius: var(--radius-sm);
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--accent);
+  background: none;
+  cursor: pointer;
+}
+.demo-login-btn:hover {
+  text-decoration: underline;
+}
+
 /* === DETAIL VIEWS === */
 .detail-section {
   background: var(--surface);
@@ -830,6 +845,14 @@
   font-size: 18px;
 }
 
+/* Danger Zone */
+.danger-zone {
+  border: 1px solid var(--danger);
+}
+.danger-zone .settings-group-title {
+  color: var(--danger);
+}
+
 /* CSV Preview */
 .csv-preview-table {
   width: 100%;
@@ -969,15 +992,6 @@
   }
 }
 @media (min-width: 768px) {
-  .view-scroll {
-    width: 100%;
-    max-width: 640px;
-    margin: 0 auto;
-  }
-  .items-toolbar {
-    max-width: 640px;
-    margin: 0 auto;
-  }
   .sheet {
     max-width: 480px;
     left: 50%;

@@ -147,8 +147,15 @@ misc        → other
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
+    function isOwner(uid) {
+      return request.auth != null && request.auth.uid == uid;
+    }
+    function isDemoUser() {
+      return request.auth.uid == 'YUzv2FDiIAgskjAArlWBSoUynum1';
+    }
     match /users/{uid}/{document=**} {
-      allow read, write: if request.auth != null && request.auth.uid == uid;
+      allow read: if isOwner(uid);
+      allow write: if isOwner(uid) && !isDemoUser();
     }
   }
 }
@@ -160,8 +167,12 @@ Firebase Storage rules:
 rules_version = '2';
 service firebase.storage {
   match /b/{bucket}/o {
+    function isDemoUser() {
+      return request.auth.uid == 'YUzv2FDiIAgskjAArlWBSoUynum1';
+    }
     match /users/{uid}/{allPaths=**} {
-      allow read, write: if request.auth != null && request.auth.uid == uid;
+      allow read: if request.auth != null && request.auth.uid == uid;
+      allow write: if request.auth != null && request.auth.uid == uid && !isDemoUser();
     }
   }
 }

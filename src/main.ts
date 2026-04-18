@@ -12,6 +12,7 @@ import {
   signInWithEmailAndPassword,
   createUserWithEmailAndPassword,
   signOut,
+  deleteUser,
   type User,
 } from 'firebase/auth';
 import {
@@ -20,6 +21,7 @@ import {
   updateDoc,
   deleteDoc,
   addDoc,
+  getDocs,
   writeBatch,
   serverTimestamp,
 } from 'firebase/firestore';
@@ -42,10 +44,12 @@ import {
   store,
   uid,
   userPath,
+  userDocRef,
   itemsCol,
   contsCol,
   listsCol,
   entriesCol,
+  tripsCol,
   loadAllData,
   setupListeners,
   teardownListeners,
@@ -163,11 +167,167 @@ type TempUnit = 'celsius' | 'fahrenheit';
 const TEMP_UNIT_KEY = 'packrat_units';
 const LAST_CONTAINER_KEY = 'packrat_last_container';
 
+const THEME_KEY = 'packrat_theme';
+interface ThemeDef {
+  label: string;
+  accent: string; // swatch preview color
+  vars: Record<string, string>;
+}
+const THEMES: Record<string, ThemeDef> = {
+  sand: {
+    label: 'Sand',
+    accent: '#3d7a72',
+    vars: {
+      '--bg': '#f7f4ef',
+      '--surface': '#ffffff',
+      '--surface-raised': '#fffdf9',
+      '--border': '#e0dad0',
+      '--border-light': '#ede8e0',
+      '--text': '#1a1714',
+      '--text-secondary': '#6b6560',
+      '--text-tertiary': '#9e9890',
+      '--accent': '#3d7a72',
+      '--accent-hover': '#2f5f59',
+      '--accent-light': '#eaf3f2',
+      '--accent-faint': '#f2faf9',
+      '--tag-bg': '#ede8e0',
+      '--tag-text': '#4a4540',
+      '--shadow-card': '0 1px 4px rgba(0,0,0,0.07), 0 0 0 1px rgba(0,0,0,0.04)',
+      '--shadow-raised': '0 4px 16px rgba(0,0,0,0.1), 0 0 0 1px rgba(0,0,0,0.05)',
+    },
+  },
+  ocean: {
+    label: 'Ocean',
+    accent: '#2563eb',
+    vars: {
+      '--bg': '#f0f4f8',
+      '--surface': '#ffffff',
+      '--surface-raised': '#f8fafc',
+      '--border': '#cbd5e1',
+      '--border-light': '#e2e8f0',
+      '--text': '#0f172a',
+      '--text-secondary': '#475569',
+      '--text-tertiary': '#94a3b8',
+      '--accent': '#2563eb',
+      '--accent-hover': '#1d4ed8',
+      '--accent-light': '#eff6ff',
+      '--accent-faint': '#f0f7ff',
+      '--tag-bg': '#e2e8f0',
+      '--tag-text': '#334155',
+      '--shadow-card': '0 1px 4px rgba(15,23,42,0.06), 0 0 0 1px rgba(15,23,42,0.04)',
+      '--shadow-raised': '0 4px 16px rgba(15,23,42,0.08), 0 0 0 1px rgba(15,23,42,0.04)',
+    },
+  },
+  rose: {
+    label: 'Rose',
+    accent: '#e11d48',
+    vars: {
+      '--bg': '#fdf2f4',
+      '--surface': '#ffffff',
+      '--surface-raised': '#fff5f7',
+      '--border': '#e8cdd2',
+      '--border-light': '#f3e0e4',
+      '--text': '#1a1114',
+      '--text-secondary': '#6b5560',
+      '--text-tertiary': '#9e8890',
+      '--accent': '#e11d48',
+      '--accent-hover': '#be123c',
+      '--accent-light': '#fff1f2',
+      '--accent-faint': '#fff5f6',
+      '--tag-bg': '#f3e0e4',
+      '--tag-text': '#4a3540',
+      '--shadow-card': '0 1px 4px rgba(26,17,20,0.07), 0 0 0 1px rgba(26,17,20,0.04)',
+      '--shadow-raised': '0 4px 16px rgba(26,17,20,0.1), 0 0 0 1px rgba(26,17,20,0.05)',
+    },
+  },
+  forest: {
+    label: 'Forest',
+    accent: '#15803d',
+    vars: {
+      '--bg': '#f0f5f1',
+      '--surface': '#ffffff',
+      '--surface-raised': '#f7faf8',
+      '--border': '#c6d5ca',
+      '--border-light': '#dbe7de',
+      '--text': '#14201a',
+      '--text-secondary': '#4b6354',
+      '--text-tertiary': '#84a08c',
+      '--accent': '#15803d',
+      '--accent-hover': '#116932',
+      '--accent-light': '#ecfdf5',
+      '--accent-faint': '#f2fef7',
+      '--tag-bg': '#dbe7de',
+      '--tag-text': '#2d4a36',
+      '--shadow-card': '0 1px 4px rgba(20,32,26,0.07), 0 0 0 1px rgba(20,32,26,0.04)',
+      '--shadow-raised': '0 4px 16px rgba(20,32,26,0.1), 0 0 0 1px rgba(20,32,26,0.05)',
+    },
+  },
+  midnight: {
+    label: 'Midnight',
+    accent: '#818cf8',
+    vars: {
+      '--bg': '#0f172a',
+      '--surface': '#1e293b',
+      '--surface-raised': '#263548',
+      '--border': '#334155',
+      '--border-light': '#293548',
+      '--text': '#f1f5f9',
+      '--text-secondary': '#94a3b8',
+      '--text-tertiary': '#64748b',
+      '--accent': '#818cf8',
+      '--accent-hover': '#6366f1',
+      '--accent-light': '#1e1b4b',
+      '--accent-faint': '#1a1744',
+      '--tag-bg': '#334155',
+      '--tag-text': '#cbd5e1',
+      '--shadow-card': '0 1px 4px rgba(0,0,0,0.3), 0 0 0 1px rgba(255,255,255,0.05)',
+      '--shadow-raised': '0 4px 16px rgba(0,0,0,0.4), 0 0 0 1px rgba(255,255,255,0.05)',
+    },
+  },
+  lavender: {
+    label: 'Lavender',
+    accent: '#7c3aed',
+    vars: {
+      '--bg': '#f5f3ff',
+      '--surface': '#ffffff',
+      '--surface-raised': '#faf8ff',
+      '--border': '#d4cce8',
+      '--border-light': '#e8e0f5',
+      '--text': '#1a1428',
+      '--text-secondary': '#5b4d73',
+      '--text-tertiary': '#8e82a3',
+      '--accent': '#7c3aed',
+      '--accent-hover': '#6d28d9',
+      '--accent-light': '#f5f3ff',
+      '--accent-faint': '#faf8ff',
+      '--tag-bg': '#e8e0f5',
+      '--tag-text': '#44385c',
+      '--shadow-card': '0 1px 4px rgba(26,20,40,0.07), 0 0 0 1px rgba(26,20,40,0.04)',
+      '--shadow-raised': '0 4px 16px rgba(26,20,40,0.1), 0 0 0 1px rgba(26,20,40,0.05)',
+    },
+  },
+};
+
+function getTheme(): string {
+  const v = localStorage.getItem(THEME_KEY) || 'sand';
+  return v in THEMES ? v : 'sand';
+}
+function applyTheme(name?: string): void {
+  const theme = THEMES[name ?? getTheme()];
+  if (!theme) return;
+  const root = document.documentElement;
+  for (const [prop, val] of Object.entries(theme.vars)) {
+    root.style.setProperty(prop, val);
+  }
+}
+
 const THUMB_BG_KEY = 'packrat_thumb_bg';
 const THUMB_BACKGROUNDS: Record<string, { label: string; css: string }> = {
-  wood: { label: 'Wood', css: 'url(/textures/wood.jpg) center/cover' },
-  marble: { label: 'Marble', css: 'url(/textures/marble.jpg) center/cover' },
-  metal: { label: 'Metal', css: 'url(/textures/metal.jpg) center/cover' },
+  wood: { label: 'Wood', css: 'url(/textures/wood.webp) center/cover' },
+  marble: { label: 'Marble', css: 'url(/textures/marble.webp) center/cover' },
+  metal: { label: 'Metal', css: 'url(/textures/metal.webp) center/cover' },
+  brick: { label: 'Brick', css: 'url(/textures/brick.webp) center/cover' },
+  grass: { label: 'Grass', css: 'url(/textures/grass.webp) center/cover' },
   none: { label: 'None', css: 'var(--border-light)' },
 };
 function getThumbBg(): string {
@@ -176,6 +336,18 @@ function getThumbBg(): string {
 }
 function getThumbBgCss(): string {
   return THUMB_BACKGROUNDS[getThumbBg()]?.css ?? THUMB_BACKGROUNDS['wood']!.css;
+}
+
+const DEMO_EMAIL = 'demo@packrat.app';
+function isDemoUser(): boolean {
+  return store.user?.email === DEMO_EMAIL;
+}
+function guardDemo(): boolean {
+  if (isDemoUser()) {
+    showToast('Demo account is read-only — sign up to create your own!', 'error', 3000);
+    return true;
+  }
+  return false;
 }
 
 function getTempUnit(): TempUnit {
@@ -239,12 +411,29 @@ $('login-form').addEventListener('submit', async e => {
   }
 });
 
+$('btn-demo-login').addEventListener('click', async () => {
+  const btn = $<HTMLButtonElement>('btn-demo-login');
+  btn.disabled = true;
+  btn.textContent = '...';
+  try {
+    await signInWithEmailAndPassword(auth, DEMO_EMAIL, 'demopackrat');
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    loginErrorEl().textContent = msg.replace('Firebase: ', '').replace(/ \(auth\/.*\)/, '');
+    btn.disabled = false;
+    btn.textContent = 'Try the demo';
+  }
+});
+
 // ============================================================
 //  AUTH STATE
 // ============================================================
 // Capture the pathname the page loaded with, before any internal navigation
 // replaces it (deep-link support on reload).
 const initialPath = window.location.pathname;
+
+// Apply saved theme immediately to avoid flash of default colors
+applyTheme();
 
 onAuthStateChanged(auth, async (user: User | null) => {
   if (user) {
@@ -500,7 +689,9 @@ function renderContainersView() {
     .forEach(img => lazyLoadPhoto(img, img.dataset['photo']));
 }
 
-$('btn-add-container').addEventListener('click', () => openContainerForm());
+$('btn-add-container').addEventListener('click', () => {
+  if (!guardDemo()) openContainerForm();
+});
 
 // ============================================================
 //  CONTAINERS — open/save form
@@ -939,7 +1130,9 @@ function updateViewToggleIcon(): void {
   if (svg) svg.innerHTML = itemsViewMode === 'list' ? VIEW_ICON_GRID : VIEW_ICON_LIST;
 }
 
-$('btn-add-item').addEventListener('click', () => openItemForm());
+$('btn-add-item').addEventListener('click', () => {
+  if (!guardDemo()) openItemForm();
+});
 
 $('items-search').addEventListener('input', applyItemFilters);
 $('items-filter-container').addEventListener('change', applyItemFilters);
@@ -1444,7 +1637,7 @@ async function saveItemForm(existingId: string | null): Promise<void> {
       if (bgRemovalBlob) {
         const nobgPath = `${userPath()}/items/${docId}_nobg.png`;
         const resizedNobg = await resizeBlobPng(bgRemovalBlob, 1400);
-        const nobgThumb = await generateThumbDataUrl(resizedNobg, 80, 'image/png');
+        const nobgThumb = await generateThumbDataUrl(resizedNobg, 100, 'image/png');
         await uploadBlob(resizedNobg, nobgPath, 'image/png');
         data['photoNobgPath'] = nobgPath;
         data['photoNobgThumb'] = nobgThumb;
@@ -1557,7 +1750,9 @@ function renderListsView() {
     .join('');
 }
 
-$('btn-add-list').addEventListener('click', () => openListForm());
+$('btn-add-list').addEventListener('click', () => {
+  if (!guardDemo()) openListForm();
+});
 
 function openListForm(listId: string | null = null): void {
   const l: Partial<List> = listId ? (store.lists.get(listId) ?? {}) : {};
@@ -1885,7 +2080,7 @@ function renderTripsView(): void {
 }
 
 $('btn-add-trip').addEventListener('click', () => {
-  showView('trip-wizard');
+  if (!guardDemo()) showView('trip-wizard');
 });
 
 // ============================================================
@@ -3071,10 +3266,94 @@ async function saveEditedTrip(): Promise<void> {
 // ============================================================
 //  SETTINGS
 // ============================================================
+
+async function deleteAllUserData(alsoDeleteAccount: boolean): Promise<void> {
+  try {
+    showToast('Deleting data…', 'success', 10_000);
+    teardownListeners();
+
+    // Firestore batches are limited to 500 ops — split into chunks
+    const batchDelete = async (docs: { ref: import('firebase/firestore').DocumentReference }[]) => {
+      for (let i = 0; i < docs.length; i += 400) {
+        const batch = writeBatch(db);
+        for (const d of docs.slice(i, i + 400)) batch.delete(d.ref);
+        await batch.commit();
+      }
+    };
+
+    // Delete list entries (subcollections) first
+    for (const [listId] of store.listEntries) {
+      const entrySnap = await getDocs(entriesCol(listId));
+      await batchDelete(entrySnap.docs);
+    }
+
+    // Delete top-level collections in parallel
+    const [contSnap, itemSnap, listSnap, tripSnap] = await Promise.all([
+      getDocs(contsCol()),
+      getDocs(itemsCol()),
+      getDocs(listsCol()),
+      getDocs(tripsCol()),
+    ]);
+    await Promise.all([
+      batchDelete(contSnap.docs),
+      batchDelete(itemSnap.docs),
+      batchDelete(listSnap.docs),
+      batchDelete(tripSnap.docs),
+    ]);
+
+    // Delete photos (best effort)
+    for (const [, c] of store.containers) {
+      if (c.photoPath) await deletePhotoIfExists(c.photoPath);
+    }
+    for (const [, item] of store.items) {
+      if (item.photoPath) await deletePhotoIfExists(item.photoPath);
+      if (item.photoNobgPath) await deletePhotoIfExists(item.photoNobgPath);
+    }
+
+    // Delete user doc
+    await deleteDoc(userDocRef());
+
+    clearStore();
+
+    if (alsoDeleteAccount && auth.currentUser) {
+      await deleteUser(auth.currentUser);
+      showToast('Account deleted', 'success');
+    } else {
+      await signOut(auth);
+      showToast('All data deleted', 'success');
+    }
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    if (msg.includes('requires-recent-login')) {
+      showToast(
+        'Please sign out, sign back in, and try again (security re-authentication required)',
+        'error',
+        6000,
+      );
+    } else {
+      showToast('Error deleting data: ' + msg, 'error', 4000);
+    }
+  }
+}
+
 function renderSettingsView() {
   const key = getApiKey();
+  const demo = isDemoUser();
   $('settings-content').innerHTML = `
-    <div class="settings-group">
+    ${
+      demo
+        ? `<div class="settings-group" style="background:var(--accent-light);border:1px solid var(--accent)">
+      <div class="settings-row" style="flex-direction:column;align-items:flex-start;gap:4px">
+        <div class="settings-row-label" style="color:var(--accent)">Demo Account</div>
+        <div class="settings-row-sub">You're browsing a read-only demo. Sign up to create your own inventory!</div>
+      </div>
+    </div>`
+        : ''
+    }
+
+    ${
+      !demo
+        ? `<div class="settings-group">
       <div class="settings-group-title">AI</div>
       <div class="settings-row" style="flex-direction:column;align-items:flex-start;gap:8px">
         <div class="settings-row-label">Anthropic API Key</div>
@@ -3091,10 +3370,26 @@ function renderSettingsView() {
           <div class="settings-row-sub" style="font-family:monospace;font-size:12px">${AI_MODEL}</div>
         </div>
       </div>
-    </div>
+    </div>`
+        : ''
+    }
 
     <div class="settings-group">
       <div class="settings-group-title">Appearance</div>
+      <div class="settings-row" style="flex-direction:column;align-items:flex-start;gap:8px">
+        <div class="settings-row-label">Theme</div>
+        <div class="thumb-bg-picker" id="theme-picker">
+          ${Object.entries(THEMES)
+            .map(
+              ([key, { label, accent }]) =>
+                `<button class="thumb-bg-opt${getTheme() === key ? ' active' : ''}" data-theme="${key}" title="${label}">
+                  <span class="thumb-bg-swatch" style="background:${accent}"></span>
+                  <span>${label}</span>
+                </button>`,
+            )
+            .join('')}
+        </div>
+      </div>
       <div class="settings-row" style="flex-direction:column;align-items:flex-start;gap:8px">
         <div class="settings-row-label">Thumbnail background</div>
         <div class="settings-row-sub">Background shown behind items with transparent photos</div>
@@ -3124,7 +3419,9 @@ function renderSettingsView() {
       </div>
     </div>
 
-    <div class="settings-group">
+    ${
+      !demo
+        ? `<div class="settings-group">
       <div class="settings-group-title">Activities</div>
       <div class="settings-row" style="flex-direction:column;align-items:flex-start;gap:8px">
         <div class="settings-row-label">Trip activities</div>
@@ -3149,17 +3446,39 @@ function renderSettingsView() {
         </div>
         <div id="csv-import-area" style="width:100%"></div>
       </div>
-    </div>
+    </div>`
+        : ''
+    }
 
     <div class="settings-group">
       <div class="settings-group-title">Account</div>
       <div class="settings-row">
         <div class="settings-row-label">${esc(store.user?.email || '')}</div>
-      </div>
-      <div class="settings-row">
-        <button class="btn-danger full-width" id="btn-logout">Sign Out</button>
+        <button class="btn-ghost" id="btn-logout">Sign Out</button>
       </div>
     </div>
+
+    ${
+      !demo
+        ? `<div class="settings-group danger-zone">
+      <div class="settings-group-title">Danger Zone</div>
+      <div class="settings-row" style="flex-direction:column;align-items:flex-start;gap:8px">
+        <div>
+          <div class="settings-row-label">Delete all data</div>
+          <div class="settings-row-sub">Permanently delete all containers, items, lists, trips, and photos. Your account will remain.</div>
+        </div>
+        <button class="btn-danger" id="btn-delete-data">Delete All Data</button>
+      </div>
+      <div class="settings-row" style="flex-direction:column;align-items:flex-start;gap:8px">
+        <div>
+          <div class="settings-row-label">Delete account</div>
+          <div class="settings-row-sub">Permanently delete your account and all associated data. This cannot be undone.</div>
+        </div>
+        <button class="btn-danger" id="btn-delete-account">Delete Account</button>
+      </div>
+    </div>`
+        : ''
+    }
 
     <div style="text-align:center;color:var(--text-tertiary);font-size:12px;padding:24px 0">
       Packrat build ${__APP_VERSION__}
@@ -3218,6 +3537,17 @@ function renderSettingsView() {
     }
   });
 
+  $maybe('theme-picker')?.addEventListener('click', e => {
+    const btn = (e.target as HTMLElement).closest<HTMLButtonElement>('.thumb-bg-opt');
+    if (!btn) return;
+    const theme = btn.dataset['theme'];
+    if (theme && theme in THEMES) {
+      localStorage.setItem(THEME_KEY, theme);
+      applyTheme(theme);
+      renderSettingsView();
+    }
+  });
+
   $maybe('thumb-bg-picker')?.addEventListener('click', e => {
     const btn = (e.target as HTMLElement).closest<HTMLButtonElement>('.thumb-bg-opt');
     if (!btn) return;
@@ -3241,8 +3571,23 @@ function renderSettingsView() {
 
   $('btn-logout')?.addEventListener('click', () => {
     showConfirm('Sign out of Packrat?', () => signOut(auth), 'Sign Out');
-    $('btn-confirm-ok').textContent = 'Sign Out';
     $('btn-confirm-ok').className = 'btn-ghost';
+  });
+
+  $('btn-delete-data')?.addEventListener('click', () => {
+    showConfirm(
+      'Delete ALL your data? This will permanently remove all containers, items, lists, trips, and photos. This cannot be undone.',
+      () => void deleteAllUserData(false),
+      'Delete Everything',
+    );
+  });
+
+  $('btn-delete-account')?.addEventListener('click', () => {
+    showConfirm(
+      'Delete your account and ALL data? This is permanent and cannot be undone.',
+      () => void deleteAllUserData(true),
+      'Delete Account',
+    );
   });
 
   $('btn-import-csv')?.addEventListener('click', () => {
@@ -3473,15 +3818,16 @@ document.addEventListener('click', async e => {
       showView('list', { id });
       break;
     case 'edit-container':
-      openContainerForm(id);
+      if (!guardDemo()) openContainerForm(id);
       break;
     case 'edit-item':
-      openItemForm(id);
+      if (!guardDemo()) openItemForm(id);
       break;
     case 'edit-list':
-      openListForm(id);
+      if (!guardDemo()) openListForm(id);
       break;
     case 'delete-container':
+      if (guardDemo()) break;
       showConfirm(
         `Delete "${store.containers.get(id)?.name}"? Items inside will be unassigned.`,
         async () => {
@@ -3492,35 +3838,42 @@ document.addEventListener('click', async e => {
       );
       break;
     case 'delete-item':
+      if (guardDemo()) break;
       showConfirm(
         `Delete "${store.items.get(id)?.name}"? It will be removed from all packing lists.`,
         () => deleteItem(id),
       );
       break;
     case 'delete-list':
+      if (guardDemo()) break;
       showConfirm(`Delete list "${store.lists.get(id)?.name}"?`, () => deleteList(id));
       break;
     case 'add-entry':
+      if (guardDemo()) break;
       openAddEntrySheet(id);
       break;
     case 'pick-entry-item': {
+      if (guardDemo()) break;
       const listId = target.dataset['list'] ?? '';
       const itemId = target.dataset['item'] ?? '';
       await addEntryToList(listId, itemId);
       break;
     }
     case 'delete-entry': {
+      if (guardDemo()) break;
       const listId = target.dataset['list'] ?? '';
       const entryId = target.dataset['entry'] ?? '';
       await removeEntryFromList(listId, entryId);
       break;
     }
     case 'entry-up': {
+      if (guardDemo()) break;
       const listId = target.dataset['list'] ?? '';
       await reorderListEntry(listId, target.dataset['entry'] ?? '', 'up');
       break;
     }
     case 'entry-down': {
+      if (guardDemo()) break;
       const listId = target.dataset['list'] ?? '';
       await reorderListEntry(listId, target.dataset['entry'] ?? '', 'down');
       break;
@@ -3533,16 +3886,16 @@ document.addEventListener('click', async e => {
       showView('trip', { id });
       break;
     case 'edit-trip':
-      showView('trip-edit', { id });
+      if (!guardDemo()) showView('trip-edit', { id });
       break;
     case 'delete-trip':
-      await deleteTripConfirm(id);
+      if (!guardDemo()) await deleteTripConfirm(id);
       break;
     case 'regenerate-trip':
-      await regenerateTripRecs(id);
+      if (!guardDemo()) await regenerateTripRecs(id);
       break;
     case 'save-trip-as-list':
-      await saveTripAsList(id);
+      if (!guardDemo()) await saveTripAsList(id);
       break;
   }
 });
@@ -3551,7 +3904,7 @@ document.addEventListener('click', async e => {
 document.addEventListener('change', async e => {
   const src = e.target as HTMLElement | null;
   const inp = src?.closest<HTMLInputElement>('[data-action="entry-qty"]');
-  if (!inp) return;
+  if (!inp || guardDemo()) return;
   await updateEntryQty(inp.dataset['list'] ?? '', inp.dataset['entry'] ?? '', inp.value);
 });
 
