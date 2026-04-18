@@ -3563,7 +3563,7 @@ function renderSettingsView() {
     $('btn-confirm-ok').className = 'btn-ghost';
   });
 
-  $('btn-delete-account')?.addEventListener('click', () => {
+  $maybe('btn-delete-account')?.addEventListener('click', () => {
     showConfirm(
       'Delete your account and ALL data? This is permanent and cannot be undone.',
       () => void deleteAllUserData(),
