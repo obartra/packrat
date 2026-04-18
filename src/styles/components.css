@@ -311,9 +311,6 @@
   border: 1px solid;
   flex-shrink: 0;
 }
-.theme-dot--dark {
-  border-color: rgba(0, 0, 0, 0.15);
-}
 
 /* Thumbnail background picker (Settings) */
 .thumb-bg-picker {
