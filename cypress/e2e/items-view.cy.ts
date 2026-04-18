@@ -9,8 +9,7 @@
  * pointing to a valid Firebase test account. Skipped in CI if missing.
  */
 
-const hasCredentials = () =>
-  Boolean(Cypress.env('TEST_EMAIL') && Cypress.env('TEST_PASSWORD'));
+import { hasCredentials } from '../support/e2e';
 
 describe('Items view — grid/list toggle, grouping, color filter', () => {
   before(function () {

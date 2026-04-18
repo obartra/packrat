@@ -2,6 +2,11 @@
 // Add custom commands or global configuration here.
 export {};
 
+/** Whether the test env has Firebase login credentials configured. */
+export function hasCredentials(): boolean {
+  return Boolean(Cypress.env('TEST_EMAIL') && Cypress.env('TEST_PASSWORD'));
+}
+
 // Swallow uncaught Firebase exceptions from dummy env vars in CI.
 // Real user interactions (form submit, etc.) are still tested.
 Cypress.on('uncaught:exception', err => {

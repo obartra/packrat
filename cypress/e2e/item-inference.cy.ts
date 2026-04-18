@@ -7,8 +7,7 @@
  * The Anthropic API is intercepted so these tests never hit a real LLM.
  */
 
-const hasCredentials = () =>
-  Boolean(Cypress.env('TEST_EMAIL') && Cypress.env('TEST_PASSWORD'));
+import { hasCredentials } from '../support/e2e';
 
 const inferenceResponse = {
   content: [
