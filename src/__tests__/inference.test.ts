@@ -225,6 +225,7 @@ describe('callInferenceAPI', () => {
 
     const body = JSON.parse(fetchMock.mock.calls[0]![1].body);
     expect(body.output_config.format.type).toBe('json_schema');
+    expect(body.output_config.format.name).toBe('item_identification');
     expect(body.output_config.format.schema).toBeDefined();
   });
 
