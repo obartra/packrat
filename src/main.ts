@@ -2868,7 +2868,7 @@ function renderSettingsView() {
     </div>
 
     <div style="text-align:center;color:var(--text-tertiary);font-size:12px;padding:24px 0">
-      Packrat v0.3 · <a href="https://github.com" target="_blank">Source</a>
+      Packrat build ${__APP_VERSION__}
     </div>`;
 
   $maybe('btn-save-key')?.addEventListener('click', async () => {
