@@ -165,30 +165,14 @@ const LAST_CONTAINER_KEY = 'packrat_last_container';
 
 const THUMB_BG_KEY = 'packrat_thumb_bg';
 const THUMB_BACKGROUNDS: Record<string, { label: string; css: string }> = {
-  wood: {
-    label: 'Wood',
-    css: 'linear-gradient(135deg, #deb887 0%, #c8a87a 25%, #d4a574 50%, #c2956b 75%, #deb887 100%)',
-  },
-  'dark-wood': {
-    label: 'Dark wood',
-    css: 'linear-gradient(135deg, #5c3d2e 0%, #6b4735 25%, #5a3828 50%, #6b4735 75%, #5c3d2e 100%)',
-  },
-  marble: {
-    label: 'Marble',
-    css: 'linear-gradient(135deg, #f0ece4 0%, #e8e0d4 30%, #f2ede5 50%, #e5ddd0 70%, #f0ece4 100%)',
-  },
-  metal: {
-    label: 'Metal',
-    css: 'linear-gradient(135deg, #c0c0c0 0%, #d8d8d8 25%, #b8b8b8 50%, #d0d0d0 75%, #c0c0c0 100%)',
-  },
-  slate: {
-    label: 'Slate',
-    css: 'linear-gradient(135deg, #4a5568 0%, #576475 25%, #3d4a5c 50%, #576475 75%, #4a5568 100%)',
-  },
+  wood: { label: 'Wood', css: 'url(/textures/wood.jpg) center/cover' },
+  marble: { label: 'Marble', css: 'url(/textures/marble.jpg) center/cover' },
+  metal: { label: 'Metal', css: 'url(/textures/metal.jpg) center/cover' },
   none: { label: 'None', css: 'var(--border-light)' },
 };
 function getThumbBg(): string {
-  return localStorage.getItem(THUMB_BG_KEY) || 'wood';
+  const v = localStorage.getItem(THUMB_BG_KEY) || 'wood';
+  return v in THUMB_BACKGROUNDS ? v : 'wood';
 }
 function getThumbBgCss(): string {
   return THUMB_BACKGROUNDS[getThumbBg()]?.css ?? THUMB_BACKGROUNDS['wood']!.css;
