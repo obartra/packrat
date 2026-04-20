@@ -1066,21 +1066,33 @@ function renderContainerView(cid: string): void {
     </div>`
         : ''
     }
-    ${(c.compartments || []).length ? `
+    ${
+      (c.compartments || []).length
+        ? `
     <div class="group-header">Compartments</div>
     <div class="stack" style="margin-bottom:12px" id="cont-compartments-list">
-      ${(c.compartments || []).map(name => `
+      ${(c.compartments || [])
+        .map(
+          name => `
         <div class="stack-card compartment-editable" data-compartment="${esc(name)}">
           <input class="compartment-name-input" type="text" value="${esc(name)}" data-original="${esc(name)}">
-        </div>`).join('')}
-    </div>` : ''}
+        </div>`,
+        )
+        .join('')}
+    </div>`
+        : ''
+    }
     <div class="group-header">Items (${items.length})</div>
-    ${items.length ? `<div class="group-by-row" id="cont-group-by-row" style="padding:0 0 8px">
+    ${
+      items.length
+        ? `<div class="group-by-row" id="cont-group-by-row" style="padding:0 0 8px">
       <span class="group-by-label">Group by</span>
       ${(c.compartments || []).length ? '<button type="button" class="segment active" data-cgroup="compartment">Compartment</button>' : ''}
       <button type="button" class="segment${(c.compartments || []).length ? '' : ' active'}" data-cgroup="category">Category</button>
       <button type="button" class="segment" data-cgroup="subcategory">Subcategory</button>
-    </div>` : ''}
+    </div>`
+        : ''
+    }
     <div id="cont-items-content">
       ${items.length ? '' : '<div class="empty-state" style="padding:24px"><p>No items in this container</p></div>'}
     </div>`;
@@ -1091,7 +1103,7 @@ function renderContainerView(cid: string): void {
   }
 
   // --- Inline compartment name editing ---
-  $maybe('cont-compartments-list')?.addEventListener('change', async (e) => {
+  $maybe('cont-compartments-list')?.addEventListener('change', async e => {
     const input = e.target as HTMLInputElement;
     if (!input.classList.contains('compartment-name-input')) return;
     const oldName = input.dataset['original'] || '';
@@ -1101,7 +1113,7 @@ function renderContainerView(cid: string): void {
       return;
     }
     // Update container's compartments array
-    const updated = (c.compartments || []).map(n => n === oldName ? newName : n);
+    const updated = (c.compartments || []).map(n => (n === oldName ? newName : n));
     try {
       const ref = doc(db, `${userPath()}/containers/${cid}`);
       await updateDoc(ref, { compartments: updated, updatedAt: serverTimestamp() });
@@ -1128,7 +1140,9 @@ function renderContainerView(cid: string): void {
   // Render grouped items for this container
   if (items.length) {
     const hasCompartments = (c.compartments || []).length > 0;
-    let contGrouping: 'category' | 'subcategory' | 'compartment' = hasCompartments ? 'compartment' : 'category';
+    let contGrouping: 'category' | 'subcategory' | 'compartment' = hasCompartments
+      ? 'compartment'
+      : 'category';
 
     function renderContainerItems(): void {
       const content = $maybe('cont-items-content');
@@ -1770,14 +1784,18 @@ function openItemForm(itemId: string | null = null): void {
     group.classList.remove('hidden');
     // Determine default: existing item value, or last-used for this container
     const lastKey = `packrat_last_compartment_${containerId}`;
-    const current = it.compartment && it.containerId === containerId
-      ? it.compartment
-      : localStorage.getItem(lastKey) || '';
+    const current =
+      it.compartment && it.containerId === containerId
+        ? it.compartment
+        : localStorage.getItem(lastKey) || '';
 
     sel.innerHTML =
       '<option value="">None</option>' +
       compartments
-        .map(name => `<option value="${esc(name)}" ${current === name ? 'selected' : ''}>${esc(name)}</option>`)
+        .map(
+          name =>
+            `<option value="${esc(name)}" ${current === name ? 'selected' : ''}>${esc(name)}</option>`,
+        )
         .join('');
   }
 
@@ -3828,9 +3846,12 @@ function renderSettingsView() {
       <div class="settings-row" style="flex-direction:column;align-items:flex-start;gap:8px">
         <div class="settings-row-label">Theme</div>
         <div class="btn-row" role="radiogroup" aria-label="Theme" id="theme-picker">
-          ${(['light', 'dark', 'system'] as const).map(m =>
-            `<button class="btn-sm ${getThemeMode() === m ? 'accent' : ''}" data-theme="${m}" role="radio" aria-checked="${getThemeMode() === m}">${m === 'system' ? 'System' : m === 'light' ? 'Light' : 'Dark'}</button>`
-          ).join('')}
+          ${(['light', 'dark', 'system'] as const)
+            .map(
+              m =>
+                `<button class="btn-sm ${getThemeMode() === m ? 'accent' : ''}" data-theme="${m}" role="radio" aria-checked="${getThemeMode() === m}">${m === 'system' ? 'System' : m === 'light' ? 'Light' : 'Dark'}</button>`,
+            )
+            .join('')}
         </div>
       </div>
       <div class="settings-row" style="flex-direction:column;align-items:flex-start;gap:8px">

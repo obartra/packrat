@@ -117,10 +117,7 @@ export function buildSmartGroupMessage(
   return `Organize these ${items.length} items into display groups:\n\n${lines.join('\n')}`;
 }
 
-export function parseSmartGroupResponse(
-  raw: string,
-  knownItemIds: Set<string>,
-): SmartGroupResult {
+export function parseSmartGroupResponse(raw: string, knownItemIds: Set<string>): SmartGroupResult {
   const cleaned = raw
     .trim()
     .replace(/^```(?:json)?\n?/, '')
