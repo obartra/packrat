@@ -1,28 +1,28 @@
 /* === DESIGN TOKENS === */
 :root {
-  --bg: #f7f4ef;
+  --bg: #f0f4f8;
   --surface: #ffffff;
-  --surface-raised: #fffdf9;
-  --border: #e0dad0;
-  --border-light: #ede8e0;
-  --text: #1a1714;
-  --text-secondary: #6b6560;
-  --text-tertiary: #9e9890;
-  --accent: #3d7a72;
-  --accent-hover: #2f5f59;
-  --accent-light: #eaf3f2;
-  --accent-faint: #f2faf9;
+  --surface-raised: #f8fafc;
+  --border: #cbd5e1;
+  --border-light: #e2e8f0;
+  --text: #0f172a;
+  --text-secondary: #475569;
+  --text-tertiary: #94a3b8;
+  --accent: #2563eb;
+  --accent-hover: #1d4ed8;
+  --accent-light: #eff6ff;
+  --accent-faint: #f0f7ff;
   --danger: #b83232;
   --danger-light: #faeaea;
-  --tag-bg: #ede8e0;
-  --tag-text: #4a4540;
+  --tag-bg: #e2e8f0;
+  --tag-text: #334155;
   --header-h: 52px;
   --nav-h: 60px;
   --fab-bottom: calc(var(--nav-h) + env(safe-area-inset-bottom) + 16px);
   --safe-bottom: env(safe-area-inset-bottom);
   --radius: 12px;
   --radius-sm: 8px;
-  --shadow-card: 0 1px 4px rgba(0, 0, 0, 0.07), 0 0 0 1px rgba(0, 0, 0, 0.04);
-  --shadow-raised: 0 4px 16px rgba(0, 0, 0, 0.1), 0 0 0 1px rgba(0, 0, 0, 0.05);
+  --shadow-card: 0 1px 4px rgba(15, 23, 42, 0.06), 0 0 0 1px rgba(15, 23, 42, 0.04);
+  --shadow-raised: 0 4px 16px rgba(15, 23, 42, 0.08), 0 0 0 1px rgba(15, 23, 42, 0.04);
   --transition: 200ms ease;
 }

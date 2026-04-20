@@ -13,9 +13,11 @@ export interface Category {
 export interface Container {
   id: string;
   name: string;
+  description?: string | null;
   type: 'suitcase' | 'backpack' | 'box' | 'bag' | 'shelf' | 'other';
   location: string;
   parentContainerId: string | null;
+  compartments: string[];
   photoPath: string | null;
   photoThumb?: string | null;
   color: string | null;
@@ -31,6 +33,7 @@ export interface Item {
   quantityOwned: number;
   quantityPackDefault: number;
   containerId: string | null;
+  compartment?: string | null;
   photoPath: string | null;
   photoThumb?: string | null;
   photoNobgPath?: string | null;
@@ -165,6 +168,15 @@ export type CategoryGroup =
   | 'misc';
 
 export type CategoriesMap = Record<CategoryGroup, string[]>;
+
+export interface SmartGroup {
+  name: string;
+  itemIds: string[];
+}
+
+export interface SmartGroupResult {
+  groups: SmartGroup[];
+}
 
 export type ContainerType = Container['type'];
 

@@ -5,6 +5,9 @@ import {
   parseAIResponse,
   callAI,
   SYSTEM_PROMPT,
+  SMART_GROUP_SYSTEM_PROMPT,
+  buildSmartGroupMessage,
+  parseSmartGroupResponse,
   type TripPromptInput,
 } from '../ai';
 import type { Item } from '../types';
@@ -355,5 +358,102 @@ describe('callAI', () => {
       text: async () => '',
     });
     await expect(callAI('u', 's', 'k')).rejects.toThrow();
+  });
+
+  it('uses custom model when provided', async () => {
+    fetchMock.mockResolvedValueOnce(okResponse('ok'));
+    await callAI('u', 's', 'k', undefined, 'claude-haiku-4-5');
+    const body = JSON.parse(fetchMock.mock.calls[0]![1].body);
+    expect(body.model).toBe('claude-haiku-4-5');
+  });
+});
+
+describe('SMART_GROUP_SYSTEM_PROMPT', () => {
+  it('requires JSON-only output with groups schema', () => {
+    expect(SMART_GROUP_SYSTEM_PROMPT).toContain('Respond ONLY with a single valid JSON');
+    expect(SMART_GROUP_SYSTEM_PROMPT).toContain('"groups"');
+    expect(SMART_GROUP_SYSTEM_PROMPT).toContain('"itemIds"');
+  });
+});
+
+describe('buildSmartGroupMessage', () => {
+  it('lists items with name, category, and id', () => {
+    const msg = buildSmartGroupMessage([
+      { id: 'a1', name: 'Wool Scarf', category: 'clothing/accessories' },
+      { id: 'b2', name: 'Sunscreen', category: 'toiletries/sunscreen' },
+    ]);
+    expect(msg).toContain('"Wool Scarf"');
+    expect(msg).toContain('clothing/accessories');
+    expect(msg).toContain('[id:a1]');
+    expect(msg).toContain('2 items');
+  });
+});
+
+describe('parseSmartGroupResponse', () => {
+  const known = new Set(['i1', 'i2', 'i3']);
+
+  it('parses a valid response and filters to known IDs', () => {
+    const raw = JSON.stringify({
+      groups: [
+        { name: 'Clothing', itemIds: ['i1', 'i2'] },
+        { name: 'Gear', itemIds: ['i3', 'unknown'] },
+      ],
+    });
+    const r = parseSmartGroupResponse(raw, known);
+    expect(r.groups).toHaveLength(2);
+    expect(r.groups[0]!.itemIds).toEqual(['i1', 'i2']);
+    expect(r.groups[1]!.itemIds).toEqual(['i3']);
+  });
+
+  it('drops empty groups after filtering', () => {
+    const raw = JSON.stringify({
+      groups: [
+        { name: 'Valid', itemIds: ['i1'] },
+        { name: 'Empty', itemIds: ['ghost'] },
+      ],
+    });
+    const r = parseSmartGroupResponse(raw, known);
+    // Empty group is dropped; i2/i3 end up in "Other"
+    expect(r.groups.find(g => g.name === 'Empty')).toBeUndefined();
+    expect(r.groups[0]!.name).toBe('Valid');
+  });
+
+  it('adds missing items to an Other group', () => {
+    const raw = JSON.stringify({
+      groups: [{ name: 'Clothing', itemIds: ['i1'] }],
+    });
+    const r = parseSmartGroupResponse(raw, known);
+    expect(r.groups).toHaveLength(2);
+    const other = r.groups.find(g => g.name === 'Other');
+    expect(other).toBeDefined();
+    expect(other!.itemIds).toContain('i2');
+    expect(other!.itemIds).toContain('i3');
+  });
+
+  it('appends missing items to existing Other group', () => {
+    const raw = JSON.stringify({
+      groups: [
+        { name: 'Clothing', itemIds: ['i1'] },
+        { name: 'Other', itemIds: ['i2'] },
+      ],
+    });
+    const r = parseSmartGroupResponse(raw, known);
+    const other = r.groups.find(g => g.name === 'Other');
+    expect(other!.itemIds).toContain('i2');
+    expect(other!.itemIds).toContain('i3');
+  });
+
+  it('strips markdown code fences', () => {
+    const raw =
+      '```json\n' +
+      JSON.stringify({ groups: [{ name: 'All', itemIds: ['i1', 'i2', 'i3'] }] }) +
+      '\n```';
+    expect(() => parseSmartGroupResponse(raw, known)).not.toThrow();
+    const r = parseSmartGroupResponse(raw, known);
+    expect(r.groups[0]!.itemIds).toHaveLength(3);
+  });
+
+  it('throws on invalid JSON', () => {
+    expect(() => parseSmartGroupResponse('not json', known)).toThrow();
   });
 });

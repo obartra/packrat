@@ -37,6 +37,7 @@ import type {
   MonthlyClimate,
   Trip,
   InferenceResult,
+  SmartGroupResult,
 } from './types';
 import { auth, db } from './firebase';
 import { $, $maybe, esc, COLOR_BUCKETS, hexToBucket } from './utils';
@@ -83,6 +84,7 @@ import {
   CONTAINER_ICONS,
   iconForCategory,
   AI_MODEL,
+  AI_INFERENCE_MODEL,
   AI_API_URL,
 } from './constants';
 import { parseCSV, type CSVRow } from './csv';
@@ -119,7 +121,16 @@ import {
   type TripDraftSnapshot,
 } from './trips';
 import { geocode, fetchYearClimate, aggregateMonths, type GeoLocation } from './weather';
-import { callAI, SYSTEM_PROMPT, buildUserMessage, inventoryFromItems, parseAIResponse } from './ai';
+import {
+  callAI,
+  SYSTEM_PROMPT,
+  buildUserMessage,
+  inventoryFromItems,
+  parseAIResponse,
+  SMART_GROUP_SYSTEM_PROMPT,
+  buildSmartGroupMessage,
+  parseSmartGroupResponse,
+} from './ai';
 import { downsampleForInference, callInferenceAPI } from './inference';
 
 // ============================================================
@@ -127,11 +138,19 @@ import { downsampleForInference, callInferenceAPI } from './inference';
 // ============================================================
 let currentItemFilter = '';
 let currentColorFilter = '';
-type ItemsGrouping = 'category' | 'subcategory' | 'container';
+type ItemsGrouping = 'category' | 'subcategory' | 'container' | 'smart';
 const ITEMS_GROUPING_KEY = 'packrat_items_grouping';
 const storedGrouping = localStorage.getItem(ITEMS_GROUPING_KEY);
 let itemsGrouping: ItemsGrouping =
-  storedGrouping === 'container' || storedGrouping === 'subcategory' ? storedGrouping : 'category';
+  storedGrouping === 'container' || storedGrouping === 'subcategory' || storedGrouping === 'smart'
+    ? storedGrouping
+    : 'category';
+
+// Smart grouping cache
+let smartGroupCache: SmartGroupResult | null = null;
+let smartGroupCacheKey = '';
+let smartGroupLoading = false;
+let smartGroupAbort: AbortController | null = null;
 type ItemsViewMode = 'list' | 'grid';
 const ITEMS_VIEW_KEY = 'packrat_items_view';
 let itemsViewMode: ItemsViewMode =
@@ -168,251 +187,76 @@ const TEMP_UNIT_KEY = 'packrat_units';
 const LAST_CONTAINER_KEY = 'packrat_last_container';
 
 const THEME_KEY = 'packrat_theme';
+type ThemeMode = 'light' | 'dark' | 'system';
 interface ThemeDef {
   label: string;
-  accent: string; // swatch preview color
-  dark?: boolean;
   vars: Record<string, string>;
 }
-const THEMES: Record<string, ThemeDef> = {
-  sand: {
-    label: 'Sand',
-    accent: '#3d7a72',
-    vars: {
-      '--bg': '#f7f4ef',
-      '--surface': '#ffffff',
-      '--surface-raised': '#fffdf9',
-      '--border': '#e0dad0',
-      '--border-light': '#ede8e0',
-      '--text': '#1a1714',
-      '--text-secondary': '#6b6560',
-      '--text-tertiary': '#9e9890',
-      '--accent': '#3d7a72',
-      '--accent-hover': '#2f5f59',
-      '--accent-light': '#eaf3f2',
-      '--accent-faint': '#f2faf9',
-      '--tag-bg': '#ede8e0',
-      '--tag-text': '#4a4540',
-      '--shadow-card': '0 1px 4px rgba(0,0,0,0.07), 0 0 0 1px rgba(0,0,0,0.04)',
-      '--shadow-raised': '0 4px 16px rgba(0,0,0,0.1), 0 0 0 1px rgba(0,0,0,0.05)',
-    },
+const LIGHT_THEME: ThemeDef = {
+  label: 'Light',
+  vars: {
+    '--bg': '#f0f4f8',
+    '--surface': '#ffffff',
+    '--surface-raised': '#f8fafc',
+    '--border': '#cbd5e1',
+    '--border-light': '#e2e8f0',
+    '--text': '#0f172a',
+    '--text-secondary': '#475569',
+    '--text-tertiary': '#94a3b8',
+    '--accent': '#2563eb',
+    '--accent-hover': '#1d4ed8',
+    '--accent-light': '#eff6ff',
+    '--accent-faint': '#f0f7ff',
+    '--tag-bg': '#e2e8f0',
+    '--tag-text': '#334155',
+    '--shadow-card': '0 1px 4px rgba(15,23,42,0.06), 0 0 0 1px rgba(15,23,42,0.04)',
+    '--shadow-raised': '0 4px 16px rgba(15,23,42,0.08), 0 0 0 1px rgba(15,23,42,0.04)',
   },
-  ocean: {
-    label: 'Ocean',
-    accent: '#2563eb',
-    vars: {
-      '--bg': '#f0f4f8',
-      '--surface': '#ffffff',
-      '--surface-raised': '#f8fafc',
-      '--border': '#cbd5e1',
-      '--border-light': '#e2e8f0',
-      '--text': '#0f172a',
-      '--text-secondary': '#475569',
-      '--text-tertiary': '#94a3b8',
-      '--accent': '#2563eb',
-      '--accent-hover': '#1d4ed8',
-      '--accent-light': '#eff6ff',
-      '--accent-faint': '#f0f7ff',
-      '--tag-bg': '#e2e8f0',
-      '--tag-text': '#334155',
-      '--shadow-card': '0 1px 4px rgba(15,23,42,0.06), 0 0 0 1px rgba(15,23,42,0.04)',
-      '--shadow-raised': '0 4px 16px rgba(15,23,42,0.08), 0 0 0 1px rgba(15,23,42,0.04)',
-    },
-  },
-  rose: {
-    label: 'Rose',
-    accent: '#e11d48',
-    vars: {
-      '--bg': '#fdf2f4',
-      '--surface': '#ffffff',
-      '--surface-raised': '#fff5f7',
-      '--border': '#e8cdd2',
-      '--border-light': '#f3e0e4',
-      '--text': '#1a1114',
-      '--text-secondary': '#6b5560',
-      '--text-tertiary': '#9e8890',
-      '--accent': '#e11d48',
-      '--accent-hover': '#be123c',
-      '--accent-light': '#fff1f2',
-      '--accent-faint': '#fff5f6',
-      '--tag-bg': '#f3e0e4',
-      '--tag-text': '#4a3540',
-      '--shadow-card': '0 1px 4px rgba(26,17,20,0.07), 0 0 0 1px rgba(26,17,20,0.04)',
-      '--shadow-raised': '0 4px 16px rgba(26,17,20,0.1), 0 0 0 1px rgba(26,17,20,0.05)',
-    },
-  },
-  forest: {
-    label: 'Forest',
-    accent: '#15803d',
-    vars: {
-      '--bg': '#f0f5f1',
-      '--surface': '#ffffff',
-      '--surface-raised': '#f7faf8',
-      '--border': '#c6d5ca',
-      '--border-light': '#dbe7de',
-      '--text': '#14201a',
-      '--text-secondary': '#4b6354',
-      '--text-tertiary': '#84a08c',
-      '--accent': '#15803d',
-      '--accent-hover': '#116932',
-      '--accent-light': '#ecfdf5',
-      '--accent-faint': '#f2fef7',
-      '--tag-bg': '#dbe7de',
-      '--tag-text': '#2d4a36',
-      '--shadow-card': '0 1px 4px rgba(20,32,26,0.07), 0 0 0 1px rgba(20,32,26,0.04)',
-      '--shadow-raised': '0 4px 16px rgba(20,32,26,0.1), 0 0 0 1px rgba(20,32,26,0.05)',
-    },
-  },
-  lavender: {
-    label: 'Lavender',
-    accent: '#7c3aed',
-    vars: {
-      '--bg': '#f5f3ff',
-      '--surface': '#ffffff',
-      '--surface-raised': '#faf8ff',
-      '--border': '#d4cce8',
-      '--border-light': '#e8e0f5',
-      '--text': '#1a1428',
-      '--text-secondary': '#5b4d73',
-      '--text-tertiary': '#8e82a3',
-      '--accent': '#7c3aed',
-      '--accent-hover': '#6d28d9',
-      '--accent-light': '#f5f3ff',
-      '--accent-faint': '#faf8ff',
-      '--tag-bg': '#e8e0f5',
-      '--tag-text': '#44385c',
-      '--shadow-card': '0 1px 4px rgba(26,20,40,0.07), 0 0 0 1px rgba(26,20,40,0.04)',
-      '--shadow-raised': '0 4px 16px rgba(26,20,40,0.1), 0 0 0 1px rgba(26,20,40,0.05)',
-    },
-  },
-  sunset: {
-    label: 'Sunset',
-    accent: '#ea580c',
-    vars: {
-      '--bg': '#fef7f0',
-      '--surface': '#ffffff',
-      '--surface-raised': '#fffbf7',
-      '--border': '#e8d5c4',
-      '--border-light': '#f3e6d8',
-      '--text': '#1a1410',
-      '--text-secondary': '#78573e',
-      '--text-tertiary': '#a68b74',
-      '--accent': '#ea580c',
-      '--accent-hover': '#c2410c',
-      '--accent-light': '#fff7ed',
-      '--accent-faint': '#fffaf5',
-      '--tag-bg': '#f3e6d8',
-      '--tag-text': '#5c3d28',
-      '--shadow-card': '0 1px 4px rgba(26,20,16,0.07), 0 0 0 1px rgba(26,20,16,0.04)',
-      '--shadow-raised': '0 4px 16px rgba(26,20,16,0.1), 0 0 0 1px rgba(26,20,16,0.05)',
-    },
-  },
-  midnight: {
-    label: 'Midnight',
-    accent: '#818cf8',
-    dark: true,
-    vars: {
-      '--bg': '#0f172a',
-      '--surface': '#1e293b',
-      '--surface-raised': '#263548',
-      '--border': '#334155',
-      '--border-light': '#293548',
-      '--text': '#f1f5f9',
-      '--text-secondary': '#94a3b8',
-      '--text-tertiary': '#64748b',
-      '--accent': '#818cf8',
-      '--accent-hover': '#6366f1',
-      '--accent-light': '#1e1b4b',
-      '--accent-faint': '#1a1744',
-      '--tag-bg': '#334155',
-      '--tag-text': '#cbd5e1',
-      '--shadow-card': '0 1px 4px rgba(0,0,0,0.3), 0 0 0 1px rgba(255,255,255,0.05)',
-      '--shadow-raised': '0 4px 16px rgba(0,0,0,0.4), 0 0 0 1px rgba(255,255,255,0.05)',
-    },
-  },
-  ember: {
-    label: 'Ember',
-    accent: '#f97316',
-    dark: true,
-    vars: {
-      '--bg': '#1c1210',
-      '--surface': '#2a1e1a',
-      '--surface-raised': '#362822',
-      '--border': '#4a3530',
-      '--border-light': '#3d2b26',
-      '--text': '#faf0eb',
-      '--text-secondary': '#c4a393',
-      '--text-tertiary': '#8b6e5e',
-      '--accent': '#f97316',
-      '--accent-hover': '#ea580c',
-      '--accent-light': '#3b2010',
-      '--accent-faint': '#2e1a0d',
-      '--tag-bg': '#4a3530',
-      '--tag-text': '#dbc4b8',
-      '--shadow-card': '0 1px 4px rgba(0,0,0,0.3), 0 0 0 1px rgba(255,255,255,0.04)',
-      '--shadow-raised': '0 4px 16px rgba(0,0,0,0.4), 0 0 0 1px rgba(255,255,255,0.04)',
-    },
-  },
-  evergreen: {
-    label: 'Evergreen',
-    accent: '#34d399',
-    dark: true,
-    vars: {
-      '--bg': '#0f1a16',
-      '--surface': '#1a2a24',
-      '--surface-raised': '#223830',
-      '--border': '#2d4a3e',
-      '--border-light': '#263d34',
-      '--text': '#ecfdf5',
-      '--text-secondary': '#93c5b0',
-      '--text-tertiary': '#5e8f78',
-      '--accent': '#34d399',
-      '--accent-hover': '#10b981',
-      '--accent-light': '#132a20',
-      '--accent-faint': '#10231b',
-      '--tag-bg': '#2d4a3e',
-      '--tag-text': '#b8e0d0',
-      '--shadow-card': '0 1px 4px rgba(0,0,0,0.3), 0 0 0 1px rgba(255,255,255,0.04)',
-      '--shadow-raised': '0 4px 16px rgba(0,0,0,0.4), 0 0 0 1px rgba(255,255,255,0.04)',
-    },
-  },
-  slate: {
-    label: 'Slate',
-    accent: '#64748b',
-    dark: true,
-    vars: {
-      '--bg': '#111318',
-      '--surface': '#1c1f26',
-      '--surface-raised': '#252830',
-      '--border': '#353840',
-      '--border-light': '#2c2f38',
-      '--text': '#e8eaef',
-      '--text-secondary': '#9ca3af',
-      '--text-tertiary': '#6b7280',
-      '--accent': '#94a3b8',
-      '--accent-hover': '#7d8da0',
-      '--accent-light': '#1e2230',
-      '--accent-faint': '#1a1d28',
-      '--tag-bg': '#353840',
-      '--tag-text': '#c8ccd4',
-      '--shadow-card': '0 1px 4px rgba(0,0,0,0.3), 0 0 0 1px rgba(255,255,255,0.04)',
-      '--shadow-raised': '0 4px 16px rgba(0,0,0,0.4), 0 0 0 1px rgba(255,255,255,0.04)',
-    },
+};
+const DARK_THEME: ThemeDef = {
+  label: 'Dark',
+  vars: {
+    '--bg': '#0f172a',
+    '--surface': '#1e293b',
+    '--surface-raised': '#263548',
+    '--border': '#334155',
+    '--border-light': '#293548',
+    '--text': '#f1f5f9',
+    '--text-secondary': '#94a3b8',
+    '--text-tertiary': '#64748b',
+    '--accent': '#818cf8',
+    '--accent-hover': '#6366f1',
+    '--accent-light': '#1e1b4b',
+    '--accent-faint': '#1a1744',
+    '--tag-bg': '#334155',
+    '--tag-text': '#cbd5e1',
+    '--shadow-card': '0 1px 4px rgba(0,0,0,0.3), 0 0 0 1px rgba(255,255,255,0.05)',
+    '--shadow-raised': '0 4px 16px rgba(0,0,0,0.4), 0 0 0 1px rgba(255,255,255,0.05)',
   },
 };
 
-function getTheme(): string {
-  const v = localStorage.getItem(THEME_KEY) || 'sand';
-  return v in THEMES ? v : 'sand';
+function getThemeMode(): ThemeMode {
+  const v = localStorage.getItem(THEME_KEY);
+  if (v === 'light' || v === 'dark') return v;
+  return 'system';
 }
-function applyTheme(name?: string): void {
-  const theme = THEMES[name ?? getTheme()];
-  if (!theme) return;
+function resolvedThemeIsDark(): boolean {
+  const mode = getThemeMode();
+  if (mode === 'light') return false;
+  if (mode === 'dark') return true;
+  return window.matchMedia('(prefers-color-scheme: dark)').matches;
+}
+function applyTheme(): void {
+  const theme = resolvedThemeIsDark() ? DARK_THEME : LIGHT_THEME;
   const root = document.documentElement;
   for (const [prop, val] of Object.entries(theme.vars)) {
     root.style.setProperty(prop, val);
   }
 }
+// Listen for system theme changes when in 'system' mode
+window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => {
+  if (getThemeMode() === 'system') applyTheme();
+});
 
 const THUMB_BG_KEY = 'packrat_thumb_bg';
 const THUMB_BACKGROUNDS: Record<string, { label: string; css: string }> = {
@@ -787,6 +631,29 @@ $('btn-add-container').addEventListener('click', () => {
 });
 
 // ============================================================
+//  SHARED FORM HELPERS
+// ============================================================
+
+/** Wire up native color picker ↔ hex text input bidirectional sync. */
+function setupColorPickerSync(touchedFields: Set<string>): void {
+  $maybe('f-color-picker')?.addEventListener('input', () => {
+    const picker = $maybe('f-color-picker') as HTMLInputElement | null;
+    const text = $maybe('f-color') as HTMLInputElement | null;
+    if (picker && text) {
+      text.value = picker.value;
+      touchedFields.add('color');
+    }
+  });
+  $maybe('f-color')?.addEventListener('input', () => {
+    const text = $maybe('f-color') as HTMLInputElement | null;
+    const picker = $maybe('f-color-picker') as HTMLInputElement | null;
+    if (text && picker && text.value.match(/^#[0-9a-fA-F]{6}$/)) {
+      picker.value = text.value;
+    }
+  });
+}
+
+// ============================================================
 //  CONTAINERS — open/save form
 // ============================================================
 function containerFormBody(c: Partial<Container> = {}): string {
@@ -805,18 +672,6 @@ function containerFormBody(c: Partial<Container> = {}): string {
       .join('');
 
   return `
-    <div class="form-group"><label>Name *</label>
-      <input type="text" id="f-name" value="${esc(c.name || '')}" placeholder="e.g. Osprey carry-on" autocomplete="off"></div>
-    <div class="form-row">
-      <div class="form-group"><label>Type</label><select id="f-type">${typeOpts}</select></div>
-      <div class="form-group"><label>Parent</label><select id="f-parent">${parentOpts}</select></div>
-    </div>
-    <div class="form-group"><label>Location</label>
-      <input type="text" id="f-location" value="${esc(c.location || '')}" placeholder="e.g. closet, storage unit"></div>
-    <div class="form-group"><label>Color</label>
-      <input type="text" id="f-color" value="${esc(c.color || '')}" placeholder="e.g. olive green"></div>
-    <div class="form-group"><label>Notes</label>
-      <textarea id="f-notes" rows="2">${esc(c.notes || '')}</textarea></div>
     <div class="form-group"><label>Photo</label>
       <div class="photo-input-area">
         <div class="photo-preview" id="f-photo-preview">
@@ -828,7 +683,54 @@ function containerFormBody(c: Partial<Container> = {}): string {
           ${c.photoPath ? '<button type="button" class="btn-sm danger" id="btn-photo-remove">Remove</button>' : ''}
         </div>
       </div>
-    </div>`;
+      <div class="inference-status hidden" id="f-inference-status" aria-live="polite">Analyzing photo...</div>
+      <button type="button" class="btn-sm hidden" id="btn-retry-inference">Retry analysis</button>
+    </div>
+    <div class="form-group"><label>Name *</label>
+      <input type="text" id="f-name" value="${esc(c.name || '')}" placeholder="e.g. Osprey carry-on" autocomplete="off"></div>
+    <div class="form-group"><label>Description</label>
+      <textarea id="f-description" rows="2" placeholder="AI-generated description...">${esc(c.description || '')}</textarea></div>
+    <div class="form-row">
+      <div class="form-group"><label>Type</label><select id="f-type">${typeOpts}</select></div>
+      <div class="form-group"><label>Parent</label><select id="f-parent">${parentOpts}</select></div>
+    </div>
+    <div class="form-group"><label>Location</label>
+      <input type="text" id="f-location" value="${esc(c.location || '')}" placeholder="e.g. closet, storage unit"></div>
+    <div class="form-group"><label>Color</label>
+      <div class="color-input-row">
+        <input type="color" id="f-color-picker" value="${esc(c.color && c.color.startsWith('#') ? c.color : '#808080')}" class="color-picker-native">
+        <input type="text" id="f-color" value="${esc(c.color || '')}" placeholder="#000000" maxlength="7">
+      </div>
+    </div>
+    <div class="form-group"><label>Compartments</label>
+      <div id="f-compartments-list" class="compartments-chips">
+        ${(c.compartments || []).map(name => `<span class="compartment-chip" data-name="${esc(name)}">${esc(name)} <button type="button" class="chip-remove" aria-label="Remove">&times;</button></span>`).join('')}
+      </div>
+      <div class="color-input-row" style="margin-top:4px">
+        <input type="text" id="f-compartment-input" placeholder="e.g. Front pocket" autocomplete="off" style="flex:1">
+        <button type="button" class="btn-sm accent" id="btn-add-compartment">Add</button>
+      </div>
+    </div>
+    <div class="form-group"><label>Notes</label>
+      <textarea id="f-notes" rows="2">${esc(c.notes || '')}</textarea></div>`;
+}
+
+function getFormCompartments(): string[] {
+  const el = $maybe('f-compartments-list');
+  if (!el) return [];
+  return [...el.querySelectorAll<HTMLElement>('.compartment-chip')]
+    .map(chip => chip.dataset['name'] || '')
+    .filter(Boolean);
+}
+
+function addCompartmentChip(name: string): void {
+  const list = $maybe('f-compartments-list');
+  if (!list) return;
+  const chip = document.createElement('span');
+  chip.className = 'compartment-chip';
+  chip.dataset['name'] = name;
+  chip.innerHTML = `${esc(name)} <button type="button" class="chip-remove" aria-label="Remove">&times;</button>`;
+  list.appendChild(chip);
 }
 
 function openContainerForm(containerId: string | null = null): void {
@@ -843,12 +745,175 @@ function openContainerForm(containerId: string | null = null): void {
     pendingPhoto.oldPath = null;
   }
   setupSheetPhotoButtons(() => $('f-photo-preview'));
+
+  // --- Touched-field tracking ---
+  const touchedFields = new Set<string>();
+  if (containerId && c.id) {
+    if (c.name) touchedFields.add('name');
+    if (c.description) touchedFields.add('description');
+    if (c.color) touchedFields.add('color');
+  }
+
+  const trackTouch = (id: string, field: string): void => {
+    const el = $maybe(id);
+    if (!el) return;
+    const handler = () => {
+      const val = (el as HTMLInputElement).value?.trim();
+      if (val) {
+        touchedFields.add(field);
+      } else {
+        touchedFields.delete(field);
+      }
+    };
+    el.addEventListener('input', handler);
+    el.addEventListener('change', handler);
+  };
+  trackTouch('f-name', 'name');
+  trackTouch('f-description', 'description');
+  trackTouch('f-color', 'color');
+  trackTouch('f-type', 'type');
+
+  setupColorPickerSync(touchedFields);
+
+  // --- Inference helpers ---
+  function applyInferenceResult(result: InferenceResult): void {
+    if (!touchedFields.has('name') && result.name) {
+      const el = $maybe('f-name') as HTMLInputElement | null;
+      if (el) el.value = result.name;
+    }
+    if (!touchedFields.has('description') && result.description) {
+      const el = $maybe('f-description') as HTMLTextAreaElement | null;
+      if (el) el.value = result.description;
+    }
+    if (!touchedFields.has('color') && result.color) {
+      const el = $maybe('f-color') as HTMLInputElement | null;
+      if (el) el.value = result.color;
+      const picker = $maybe('f-color-picker') as HTMLInputElement | null;
+      if (picker && result.color.match(/^#[0-9a-fA-F]{6}$/)) picker.value = result.color;
+    }
+    // Map inference category to container type if not touched
+    if (!touchedFields.has('type') && result.categoryValue) {
+      const typeSel = $maybe('f-type') as HTMLSelectElement | null;
+      if (typeSel) {
+        const match = CONTAINER_TYPES.find(t => result.categoryValue?.toLowerCase().includes(t));
+        if (match) typeSel.value = match;
+      }
+    }
+  }
+
+  let contInferenceBase64: string | null = null;
+
+  function runInference(): void {
+    if (!contInferenceBase64) return;
+    const apiKey = getApiKey();
+    if (!apiKey) {
+      showToast('Add your Anthropic API key in Settings to auto-fill from photos', '');
+      return;
+    }
+
+    const requestId = ++inferenceRequestId;
+    if (inferenceAbort) inferenceAbort.abort();
+    inferenceAbort = new AbortController();
+    const timeoutId = setTimeout(() => inferenceAbort?.abort(), 10_000);
+
+    const retryBtn = $maybe('btn-retry-inference');
+    if (retryBtn) retryBtn.classList.add('hidden');
+    const statusEl = $maybe('f-inference-status');
+    if (statusEl) {
+      statusEl.textContent = 'Analyzing photo…';
+      statusEl.classList.remove('hidden');
+    }
+
+    callInferenceAPI(contInferenceBase64!, apiKey, inferenceAbort.signal)
+      .then(result => {
+        clearTimeout(timeoutId);
+        if (requestId !== inferenceRequestId) return;
+        applyInferenceResult(result);
+      })
+      .catch(err => {
+        clearTimeout(timeoutId);
+        if (err instanceof DOMException && err.name === 'AbortError') return;
+        showToast('Photo analysis failed — fill fields manually', 'error');
+        if (retryBtn) retryBtn.classList.remove('hidden');
+      })
+      .finally(() => {
+        if (requestId === inferenceRequestId) {
+          const statusEl2 = $maybe('f-inference-status');
+          if (statusEl2) statusEl2.classList.add('hidden');
+        }
+      });
+  }
+
+  $maybe('btn-retry-inference')?.addEventListener('click', runInference);
+
+  // --- Cancel inference on sheet close ---
+  setOnSheetClose(() => {
+    if (inferenceAbort) {
+      inferenceAbort.abort();
+      inferenceAbort = null;
+    }
+  });
+
+  // --- Photo picker with inference ---
+  setPhotoPickerCallback((file: File) => {
+    pendingPhoto.file = file;
+    const url = URL.createObjectURL(file);
+    const prev = $maybe('f-photo-preview');
+    if (prev) {
+      prev.innerHTML = `<img src="${url}" style="width:100%;height:100%;object-fit:cover;border-radius:8px;">`;
+    }
+
+    if (inferenceAbort) inferenceAbort.abort();
+
+    downsampleForInference(file)
+      .then(base64 => {
+        contInferenceBase64 = base64;
+        runInference();
+      })
+      .catch(() => {
+        showToast('Could not process photo', 'error');
+      });
+  });
+
   $maybe('btn-photo-camera')?.addEventListener('click', () => triggerPhotoPicker('camera'));
   $maybe('btn-photo-library')?.addEventListener('click', () => triggerPhotoPicker('library'));
   $maybe('btn-photo-remove')?.addEventListener('click', () => {
     pendingPhoto.oldPath = c.photoPath ?? null;
     pendingPhoto.file = 'REMOVE';
-    $('f-photo-preview').innerHTML = '📦';
+    $('f-photo-preview').innerHTML = CONTAINER_ICONS[c.type || 'other'] || '📦';
+    contInferenceBase64 = null;
+    if (inferenceAbort) {
+      inferenceAbort.abort();
+      inferenceAbort = null;
+    }
+    const statusEl = $maybe('f-inference-status');
+    if (statusEl) statusEl.classList.add('hidden');
+    const retryBtn = $maybe('btn-retry-inference');
+    if (retryBtn) retryBtn.classList.add('hidden');
+  });
+
+  // --- Compartments ---
+  $maybe('btn-add-compartment')?.addEventListener('click', () => {
+    const input = $maybe('f-compartment-input') as HTMLInputElement | null;
+    const name = input?.value?.trim();
+    if (!name) return;
+    const existing = getFormCompartments();
+    if (existing.includes(name)) {
+      showToast('Compartment already exists', 'error');
+      return;
+    }
+    addCompartmentChip(name);
+    if (input) input.value = '';
+  });
+  $maybe('f-compartment-input')?.addEventListener('keydown', (e: Event) => {
+    if ((e as KeyboardEvent).key === 'Enter') {
+      e.preventDefault();
+      $maybe('btn-add-compartment')?.click();
+    }
+  });
+  $maybe('f-compartments-list')?.addEventListener('click', e => {
+    const btn = (e.target as HTMLElement).closest('.chip-remove');
+    if (btn) btn.closest('.compartment-chip')?.remove();
   });
 }
 
@@ -866,10 +931,12 @@ async function saveContainerForm(existingId: string | null): Promise<void> {
   try {
     const data: Record<string, unknown> = {
       name,
+      description: $('f-description').value?.trim() || '',
       type: $('f-type').value || 'other',
       parentContainerId: $('f-parent').value || null,
       location: $('f-location').value?.trim() || '',
-      color: $('f-color').value?.trim() || '',
+      color: $('f-color').value?.trim() || null,
+      compartments: getFormCompartments(),
       notes: $('f-notes').value?.trim() || '',
       updatedAt: serverTimestamp(),
     };
@@ -972,9 +1039,10 @@ function renderContainerView(cid: string): void {
       }
     </div>
     <div class="detail-section">
+      ${c.description ? `<div class="detail-row"><span class="detail-value" style="color:var(--text-secondary);font-style:italic">${esc(c.description)}</span></div>` : ''}
       <div class="detail-row"><span class="detail-label">Type</span><span class="detail-value">${esc(c.type || '—')}</span></div>
       ${c.location ? `<div class="detail-row"><span class="detail-label">Location</span><span class="detail-value">${esc(c.location)}</span></div>` : ''}
-      ${c.color ? `<div class="detail-row"><span class="detail-label">Color</span><span class="detail-value">${esc(c.color)}</span></div>` : ''}
+      ${c.color ? `<div class="detail-row"><span class="detail-label">Color</span><span class="detail-value">${c.color.startsWith('#') ? `<span class="color-dot" style="background:${esc(c.color)}"></span> ${esc(c.color)}` : esc(c.color)}</span></div>` : ''}
       ${c.notes ? `<div class="detail-row"><span class="detail-label">Notes</span><span class="detail-value">${esc(c.notes)}</span></div>` : ''}
       <div class="detail-actions">
         <button class="btn-sm accent" data-action="edit-container" data-id="${cid}">Edit</button>
@@ -998,15 +1066,151 @@ function renderContainerView(cid: string): void {
     </div>`
         : ''
     }
+    ${(c.compartments || []).length ? `
+    <div class="group-header">Compartments</div>
+    <div class="stack" style="margin-bottom:12px" id="cont-compartments-list">
+      ${(c.compartments || []).map(name => `
+        <div class="stack-card compartment-editable" data-compartment="${esc(name)}">
+          <input class="compartment-name-input" type="text" value="${esc(name)}" data-original="${esc(name)}">
+        </div>`).join('')}
+    </div>` : ''}
     <div class="group-header">Items (${items.length})</div>
-    <div class="stack">
-      ${items.map(it => renderItemRow(it)).join('') || '<div class="empty-state" style="padding:24px"><p>No items in this container</p></div>'}
+    ${items.length ? `<div class="group-by-row" id="cont-group-by-row" style="padding:0 0 8px">
+      <span class="group-by-label">Group by</span>
+      ${(c.compartments || []).length ? '<button type="button" class="segment active" data-cgroup="compartment">Compartment</button>' : ''}
+      <button type="button" class="segment${(c.compartments || []).length ? '' : ' active'}" data-cgroup="category">Category</button>
+      <button type="button" class="segment" data-cgroup="subcategory">Subcategory</button>
+    </div>` : ''}
+    <div id="cont-items-content">
+      ${items.length ? '' : '<div class="empty-state" style="padding:24px"><p>No items in this container</p></div>'}
     </div>`;
 
   if (c.photoPath) {
     const img = $maybe('cont-photo');
     if (img) lazyLoadPhoto(img, c.photoPath);
   }
+
+  // --- Inline compartment name editing ---
+  $maybe('cont-compartments-list')?.addEventListener('change', async (e) => {
+    const input = e.target as HTMLInputElement;
+    if (!input.classList.contains('compartment-name-input')) return;
+    const oldName = input.dataset['original'] || '';
+    const newName = input.value.trim();
+    if (!newName || newName === oldName) {
+      input.value = oldName;
+      return;
+    }
+    // Update container's compartments array
+    const updated = (c.compartments || []).map(n => n === oldName ? newName : n);
+    try {
+      const ref = doc(db, `${userPath()}/containers/${cid}`);
+      await updateDoc(ref, { compartments: updated, updatedAt: serverTimestamp() });
+      c.compartments = updated;
+      if (store.containers.has(cid)) {
+        store.containers.set(cid, { ...store.containers.get(cid)!, compartments: updated });
+      }
+      input.dataset['original'] = newName;
+      // Update items that reference the old compartment name
+      for (const it of items) {
+        if (it.compartment === oldName) {
+          it.compartment = newName;
+          const itemRef = doc(db, `${userPath()}/items/${it.id}`);
+          await updateDoc(itemRef, { compartment: newName, updatedAt: serverTimestamp() });
+        }
+      }
+      showToast('Compartment renamed', 'success');
+    } catch {
+      input.value = oldName;
+      showToast('Failed to rename compartment', 'error');
+    }
+  });
+
+  // Render grouped items for this container
+  if (items.length) {
+    const hasCompartments = (c.compartments || []).length > 0;
+    let contGrouping: 'category' | 'subcategory' | 'compartment' = hasCompartments ? 'compartment' : 'category';
+
+    function renderContainerItems(): void {
+      const content = $maybe('cont-items-content');
+      if (!content) return;
+      const groups: Record<string, Item[]> = {};
+
+      if (contGrouping === 'compartment') {
+        // Group by compartment
+        for (const it of items) {
+          const k = it.compartment || 'Unassigned';
+          if (!groups[k]) groups[k] = [];
+          groups[k]!.push(it);
+        }
+        // Order: compartments in their defined order, then Unassigned last
+        const compOrder = store.containers.get(cid)?.compartments || [];
+        const sortedKeys = Object.keys(groups).sort((a, b) => {
+          if (a === 'Unassigned') return 1;
+          if (b === 'Unassigned') return -1;
+          const ai = compOrder.indexOf(a);
+          const bi = compOrder.indexOf(b);
+          return (ai === -1 ? 999 : ai) - (bi === -1 ? 999 : bi);
+        });
+        renderGroupedContent(content as HTMLElement, sortedKeys, groups, items);
+        return;
+      }
+
+      for (const it of items) {
+        let k: string;
+        if (contGrouping === 'subcategory') {
+          const g = it.category?.group || 'misc';
+          const v = it.category?.value || 'other';
+          k = `${g}/${v}`;
+        } else {
+          k = it.category?.group || 'misc';
+        }
+        if (!groups[k]) groups[k] = [];
+        groups[k]!.push(it);
+      }
+
+      const cats = Object.keys(CATEGORIES);
+      const sortedKeys = Object.keys(groups).sort((a, b) => {
+        if (contGrouping === 'subcategory') {
+          const [aGrp, aSub] = a.split('/');
+          const [bGrp, bSub] = b.split('/');
+          const gi = cats.indexOf(aGrp!) - cats.indexOf(bGrp!);
+          return gi !== 0 ? gi : (aSub || '').localeCompare(bSub || '');
+        }
+        return cats.indexOf(a) - cats.indexOf(b);
+      });
+
+      const labeledGroups: Record<string, Item[]> = {};
+      const labeledKeys: string[] = [];
+      for (const k of sortedKeys) {
+        let label: string;
+        if (contGrouping === 'subcategory') {
+          const v = k.split('/')[1] || k;
+          label = v.charAt(0).toUpperCase() + v.slice(1).replace(/-/g, ' ');
+        } else {
+          label = k.charAt(0).toUpperCase() + k.slice(1);
+        }
+        labeledGroups[label] = groups[k]!;
+        labeledKeys.push(label);
+      }
+      renderGroupedContent(content as HTMLElement, labeledKeys, labeledGroups, items);
+    }
+
+    renderContainerItems();
+
+    $maybe('cont-group-by-row')?.addEventListener('click', e => {
+      const btn = (e.target as HTMLElement).closest<HTMLButtonElement>('.segment');
+      if (!btn) return;
+      const g = btn.dataset['cgroup'] as 'category' | 'subcategory' | 'compartment';
+      if (g && g !== contGrouping) {
+        contGrouping = g;
+        document.querySelectorAll<HTMLElement>('#cont-group-by-row .segment').forEach(b => {
+          b.classList.toggle('active', b.dataset['cgroup'] === g);
+        });
+        renderContainerItems();
+      }
+    });
+  }
+
   // Lazy load item thumbs
   $('container-detail-content')
     .querySelectorAll<HTMLImageElement>('img[data-photo]')
@@ -1089,6 +1293,12 @@ function applyItemFilters(): void {
   const isGrid = itemsViewMode === 'grid';
   content.closest('.items-scroll')?.classList.toggle('grid-mode', isGrid);
 
+  // Smart grouping: async path
+  if (itemsGrouping === 'smart') {
+    renderSmartGroupedItems(items, content);
+    return;
+  }
+
   // Group by selected mode (category.group, subcategory, or container)
   const groupKeyOf = (it: Item): string => {
     if (itemsGrouping === 'container') return containerName(it.containerId);
@@ -1134,23 +1344,15 @@ function applyItemFilters(): void {
     return k;
   };
 
-  const renderFn = isGrid ? renderItemGridCell : renderItemRow;
-  const wrapClass = isGrid ? 'item-grid' : 'stack';
-
-  content.innerHTML = sortedKeys
-    .map(
-      k => `
-    <div class="group-header">${esc(labelFor(k))} <span style="font-size:11px;font-weight:400;text-transform:none;letter-spacing:0">(${groups[k]!.length})</span></div>
-    <div class="${wrapClass}" style="margin-bottom:4px">
-      ${groups[k]!.map(it => renderFn(it)).join('')}
-    </div>
-  `,
-    )
-    .join('');
-
-  content
-    .querySelectorAll<HTMLImageElement>('img[data-photo]')
-    .forEach(img => lazyLoadPhoto(img, img.dataset['photo']));
+  // Remap keys to display labels for renderGroupedContent
+  const labeledGroups: Record<string, Item[]> = {};
+  const labeledKeys: string[] = [];
+  for (const k of sortedKeys) {
+    const label = labelFor(k);
+    labeledGroups[label] = groups[k]!;
+    labeledKeys.push(label);
+  }
+  renderGroupedContent(content, labeledKeys, labeledGroups, items);
 }
 
 function renderItemRow(it: Item): string {
@@ -1185,6 +1387,102 @@ function renderItemGridCell(it: Item): string {
         ${thumbSrc ? `<img src="${thumbSrc}" alt="${esc(it.name)}"${useNobg ? ' class="nobg-thumb"' : ''}>` : it.photoPath ? `<img data-photo="${esc(it.photoPath)}" alt="${esc(it.name)}">` : `<span>${icon}</span>`}
       </div>
     </div>`;
+}
+
+/** Shared rendering for grouped items (used by both static and smart grouping). */
+function renderGroupedContent(
+  content: HTMLElement,
+  sortedKeys: string[],
+  groups: Record<string, Item[]>,
+  _allItems: Item[],
+): void {
+  const isGrid = itemsViewMode === 'grid';
+  const renderFn = isGrid ? renderItemGridCell : renderItemRow;
+  const wrapClass = isGrid ? 'item-grid' : 'stack';
+
+  content.innerHTML = sortedKeys
+    .map(
+      k => `
+    <div class="group-header">${esc(k)} <span style="font-size:11px;font-weight:400;text-transform:none;letter-spacing:0">(${groups[k]!.length})</span></div>
+    <div class="${wrapClass}" style="margin-bottom:4px">
+      ${groups[k]!.map(it => renderFn(it)).join('')}
+    </div>
+  `,
+    )
+    .join('');
+
+  content
+    .querySelectorAll<HTMLImageElement>('img[data-photo]')
+    .forEach(img => lazyLoadPhoto(img, img.dataset['photo']));
+}
+
+/** Compute a cache key from items so we know when to re-fetch smart groups. */
+function smartGroupKey(items: Item[]): string {
+  return items
+    .map(it => `${it.id}:${it.name}:${it.category?.group}/${it.category?.value}`)
+    .sort()
+    .join('|');
+}
+
+/** Render items using AI-generated smart groups. Async — shows loading on first call. */
+function renderSmartGroupedItems(items: Item[], content: HTMLElement): void {
+  const itemMap = new Map(items.map(it => [it.id, it]));
+  const cacheKey = smartGroupKey(items);
+
+  // Use cached result if items haven't changed
+  if (smartGroupCache && smartGroupCacheKey === cacheKey) {
+    const groups: Record<string, Item[]> = {};
+    const sortedKeys: string[] = [];
+    for (const g of smartGroupCache.groups) {
+      const groupItems = g.itemIds.map(id => itemMap.get(id)).filter(Boolean) as Item[];
+      if (groupItems.length) {
+        groups[g.name] = groupItems;
+        sortedKeys.push(g.name);
+      }
+    }
+    renderGroupedContent(content, sortedKeys, groups, items);
+    return;
+  }
+
+  // Check for API key
+  const apiKey = getApiKey();
+  if (!apiKey) {
+    content.innerHTML = `<div class="empty-state"><div class="empty-icon">🔑</div><p>API key required</p><small>Add your Anthropic API key in Settings to use smart grouping</small></div>`;
+    return;
+  }
+
+  // Show loading state
+  if (!smartGroupLoading) {
+    content.innerHTML = `<div class="empty-state"><div class="empty-icon" style="animation:spin 1s linear infinite">⏳</div><p>Organizing items…</p><small>AI is creating smart groups</small></div>`;
+    smartGroupLoading = true;
+
+    // Abort any previous request
+    if (smartGroupAbort) smartGroupAbort.abort();
+    smartGroupAbort = new AbortController();
+
+    const inputItems = items.map(it => ({
+      id: it.id,
+      name: it.name,
+      category: `${it.category?.group || 'misc'}/${it.category?.value || 'other'}`,
+    }));
+
+    const msg = buildSmartGroupMessage(inputItems);
+    callAI(msg, SMART_GROUP_SYSTEM_PROMPT, apiKey, smartGroupAbort.signal, AI_INFERENCE_MODEL)
+      .then(raw => {
+        const knownIds = new Set(items.map(it => it.id));
+        smartGroupCache = parseSmartGroupResponse(raw, knownIds);
+        smartGroupCacheKey = cacheKey;
+        smartGroupLoading = false;
+        // Re-render if still in smart mode
+        if (itemsGrouping === 'smart') applyItemFilters();
+      })
+      .catch(err => {
+        smartGroupLoading = false;
+        if (err.name === 'AbortError') return;
+        console.error('Smart grouping failed:', err);
+        content.innerHTML = `<div class="empty-state"><div class="empty-icon">⚠️</div><p>Grouping failed</p><small>${esc(err.message || 'Unknown error')}</small></div>`;
+      });
+  }
 }
 
 function renderColorChips(): void {
@@ -1373,6 +1671,7 @@ function itemFormBody(it: Partial<Item> = {}): string {
         </div>
       </div>
       <div class="inference-status hidden" id="f-inference-status" aria-live="polite">Analyzing photo...</div>
+      <button type="button" class="btn-sm hidden" id="btn-retry-inference">Retry analysis</button>
     </div>
     <div class="form-group"><label>Name *</label>
       <input type="text" id="f-name" value="${esc(it.name || '')}" placeholder="e.g. Black merino t-shirt" autocomplete="off"></div>
@@ -1386,7 +1685,7 @@ function itemFormBody(it: Partial<Item> = {}): string {
     </div>
     <div class="form-group"><label>Color</label>
       <div class="color-input-row">
-        <div class="color-swatch" id="f-color-swatch" style="background:${esc(it.color || '#ccc')}"></div>
+        <input type="color" id="f-color-picker" value="${esc(it.color && it.color.startsWith('#') ? it.color : '#808080')}" class="color-picker-native">
         <input type="text" id="f-color" value="${esc(it.color || '')}" placeholder="#000000" maxlength="7">
       </div>
     </div>
@@ -1397,6 +1696,7 @@ function itemFormBody(it: Partial<Item> = {}): string {
         <input type="number" id="f-qty-pack" value="${it.quantityPackDefault || 1}" min="0" inputmode="numeric" style="text-align:center"></div>
     </div>
     <div class="form-group"><label>Container</label><select id="f-container">${contOpts}</select></div>
+    <div class="form-group hidden" id="f-compartment-group"><label>Compartment</label><select id="f-compartment"></select></div>
     <div class="form-group"><label>Tags</label>
       <input type="text" id="f-tags" value="${esc((it.tags || []).join(', '))}" placeholder="merino, warm weather"></div>
     <div class="form-group"><label>Notes</label>
@@ -1425,8 +1725,16 @@ function openItemForm(itemId: string | null = null): void {
   const trackTouch = (id: string, field: string): void => {
     const el = $maybe(id);
     if (!el) return;
-    el.addEventListener('input', () => touchedFields.add(field));
-    el.addEventListener('change', () => touchedFields.add(field));
+    const handler = () => {
+      const val = (el as HTMLInputElement).value?.trim();
+      if (val) {
+        touchedFields.add(field);
+      } else {
+        touchedFields.delete(field);
+      }
+    };
+    el.addEventListener('input', handler);
+    el.addEventListener('change', handler);
   };
   trackTouch('f-name', 'name');
   trackTouch('f-description', 'description');
@@ -1435,12 +1743,7 @@ function openItemForm(itemId: string | null = null): void {
   trackTouch('f-color', 'color');
   trackTouch('f-tags', 'tags');
 
-  // Update color swatch on manual input
-  $maybe('f-color')?.addEventListener('input', () => {
-    const val = ($maybe('f-color') as HTMLInputElement | null)?.value || '';
-    const swatch = $maybe('f-color-swatch');
-    if (swatch) (swatch as HTMLElement).style.background = val || '#ccc';
-  });
+  setupColorPickerSync(touchedFields);
 
   // Dynamic category value update
   $maybe('f-cat-group')?.addEventListener('change', e => {
@@ -1448,6 +1751,38 @@ function openItemForm(itemId: string | null = null): void {
     const valSel = $maybe('f-cat-value');
     if (valSel) valSel.innerHTML = categoryValueOptions(sel.value);
   });
+
+  // --- Compartment dropdown (depends on selected container) ---
+  function updateCompartmentDropdown(): void {
+    const containerId = ($maybe('f-container') as HTMLSelectElement | null)?.value || '';
+    const container = containerId ? store.containers.get(containerId) : null;
+    const compartments = container?.compartments || [];
+    const group = $maybe('f-compartment-group');
+    const sel = $maybe('f-compartment') as HTMLSelectElement | null;
+    if (!group || !sel) return;
+
+    if (!compartments.length) {
+      group.classList.add('hidden');
+      sel.innerHTML = '';
+      return;
+    }
+
+    group.classList.remove('hidden');
+    // Determine default: existing item value, or last-used for this container
+    const lastKey = `packrat_last_compartment_${containerId}`;
+    const current = it.compartment && it.containerId === containerId
+      ? it.compartment
+      : localStorage.getItem(lastKey) || '';
+
+    sel.innerHTML =
+      '<option value="">None</option>' +
+      compartments
+        .map(name => `<option value="${esc(name)}" ${current === name ? 'selected' : ''}>${esc(name)}</option>`)
+        .join('');
+  }
+
+  updateCompartmentDropdown();
+  $maybe('f-container')?.addEventListener('change', updateCompartmentDropdown);
 
   // --- Shared inference helpers ---
   function applyInferenceResult(result: InferenceResult): void {
@@ -1473,8 +1808,8 @@ function openItemForm(itemId: string | null = null): void {
     if (!touchedFields.has('color') && result.color) {
       const el = $maybe('f-color') as HTMLInputElement | null;
       if (el) el.value = result.color;
-      const swatch = $maybe('f-color-swatch');
-      if (swatch) (swatch as HTMLElement).style.background = result.color;
+      const picker = $maybe('f-color-picker') as HTMLInputElement | null;
+      if (picker && result.color.match(/^#[0-9a-fA-F]{6}$/)) picker.value = result.color;
     }
     if (!touchedFields.has('tags') && result.tags?.length) {
       const el = $maybe('f-tags') as HTMLInputElement | null;
@@ -1578,6 +1913,51 @@ function openItemForm(itemId: string | null = null): void {
     }
   });
 
+  // --- Retry / run inference ---
+  function runInference(): void {
+    if (!inferenceBase64) return;
+    const apiKey = getApiKey();
+    if (!apiKey) {
+      showToast('Add your Anthropic API key in Settings to auto-fill from photos', '');
+      return;
+    }
+
+    const requestId = ++inferenceRequestId;
+    if (inferenceAbort) inferenceAbort.abort();
+    inferenceAbort = new AbortController();
+    const timeoutId = setTimeout(() => inferenceAbort?.abort(), 10_000);
+
+    const retryBtn = $maybe('btn-retry-inference');
+    if (retryBtn) retryBtn.classList.add('hidden');
+    const statusEl = $maybe('f-inference-status');
+    if (statusEl) {
+      statusEl.textContent = 'Analyzing photo…';
+      statusEl.classList.remove('hidden');
+    }
+
+    const corrections = gatherCorrections();
+    callInferenceAPI(inferenceBase64!, apiKey, inferenceAbort.signal, corrections ?? undefined)
+      .then(result => {
+        clearTimeout(timeoutId);
+        if (requestId !== inferenceRequestId) return;
+        applyInferenceResult(result);
+      })
+      .catch(err => {
+        clearTimeout(timeoutId);
+        if (err instanceof DOMException && err.name === 'AbortError') return;
+        showToast('Photo analysis failed — fill fields manually', 'error');
+        if (retryBtn) retryBtn.classList.remove('hidden');
+      })
+      .finally(() => {
+        if (requestId === inferenceRequestId) {
+          const statusEl2 = $maybe('f-inference-status');
+          if (statusEl2) statusEl2.classList.add('hidden');
+        }
+      });
+  }
+
+  $maybe('btn-retry-inference')?.addEventListener('click', runInference);
+
   // --- Photo picker with inference ---
   let previewObjectUrl: string | null = null;
   setPhotoPickerCallback((file: File) => {
@@ -1604,42 +1984,14 @@ function openItemForm(itemId: string | null = null): void {
         /* bg removal is best-effort */
       });
 
-    const apiKey = getApiKey();
-    if (!apiKey) {
-      showToast('Add your Anthropic API key in Settings to auto-fill from photos', '');
-      return;
-    }
-
-    const requestId = ++inferenceRequestId;
-    inferenceAbort = new AbortController();
-    const timeoutId = setTimeout(() => inferenceAbort?.abort(), 10_000);
-
-    const statusEl = $maybe('f-inference-status');
-    if (statusEl) {
-      statusEl.textContent = 'Analyzing photo…';
-      statusEl.classList.remove('hidden');
-    }
-
+    // Downsample and run inference
     downsampleForInference(file)
       .then(base64 => {
         inferenceBase64 = base64;
-        return callInferenceAPI(base64, apiKey, inferenceAbort!.signal);
+        runInference();
       })
-      .then(result => {
-        clearTimeout(timeoutId);
-        if (requestId !== inferenceRequestId) return;
-        applyInferenceResult(result);
-      })
-      .catch(err => {
-        clearTimeout(timeoutId);
-        if (err instanceof DOMException && err.name === 'AbortError') return;
-        showToast('Photo analysis failed — fill fields manually', 'error');
-      })
-      .finally(() => {
-        if (requestId === inferenceRequestId) {
-          const statusEl = $maybe('f-inference-status');
-          if (statusEl) statusEl.classList.add('hidden');
-        }
+      .catch(() => {
+        showToast('Could not process photo', 'error');
       });
   });
 
@@ -1658,6 +2010,8 @@ function openItemForm(itemId: string | null = null): void {
     if (reInferTimer) clearTimeout(reInferTimer);
     const statusEl = $maybe('f-inference-status');
     if (statusEl) statusEl.classList.add('hidden');
+    const retryBtn = $maybe('btn-retry-inference');
+    if (retryBtn) retryBtn.classList.add('hidden');
   });
 }
 
@@ -1693,6 +2047,7 @@ async function saveItemForm(existingId: string | null): Promise<void> {
       quantityOwned: parseInt($('f-qty-own').value ?? '1') || 1,
       quantityPackDefault: parseInt($('f-qty-pack').value ?? '1') || 1,
       containerId: $('f-container').value || null,
+      compartment: ($maybe('f-compartment') as HTMLSelectElement | null)?.value || null,
       color: ($maybe('f-color') as HTMLInputElement | null)?.value?.trim() || null,
       description: ($maybe('f-description') as HTMLTextAreaElement | null)?.value?.trim() || null,
       tags,
@@ -1703,6 +2058,10 @@ async function saveItemForm(existingId: string | null): Promise<void> {
     const selectedContainerId = data['containerId'] as string | null;
     if (selectedContainerId) {
       localStorage.setItem(LAST_CONTAINER_KEY, selectedContainerId);
+      const compartment = data['compartment'] as string | null;
+      if (compartment) {
+        localStorage.setItem(`packrat_last_compartment_${selectedContainerId}`, compartment);
+      }
     }
 
     const docRef = existingId ? doc(db, `${userPath()}/items/${existingId}`) : doc(itemsCol());
@@ -3468,31 +3827,10 @@ function renderSettingsView() {
       <div class="settings-group-title">Appearance</div>
       <div class="settings-row" style="flex-direction:column;align-items:flex-start;gap:8px">
         <div class="settings-row-label">Theme</div>
-        <div class="theme-picker" id="theme-picker">
-          <div class="theme-section-label">Light</div>
-          ${Object.entries(THEMES)
-            .filter(([, t]) => !t.dark)
-            .map(
-              ([key, { label, accent, vars }]) =>
-                `<button class="theme-opt${getTheme() === key ? ' active' : ''}" data-theme="${key}" title="${label}"
-                  style="background:${vars['--surface']};color:${vars['--text-secondary']};border-color:${getTheme() === key ? vars['--accent'] : vars['--border']}">
-                  <span class="theme-dot" style="background:${accent};border-color:${vars['--border']}"></span>
-                  <span>${label}</span>
-                </button>`,
-            )
-            .join('')}
-          <div class="theme-section-label">Dark</div>
-          ${Object.entries(THEMES)
-            .filter(([, t]) => t.dark)
-            .map(
-              ([key, { label, accent, vars }]) =>
-                `<button class="theme-opt${getTheme() === key ? ' active' : ''}" data-theme="${key}" title="${label}"
-                  style="background:${vars['--surface']};color:${vars['--text-secondary']};border-color:${getTheme() === key ? vars['--accent'] : vars['--border']}">
-                  <span class="theme-dot" style="background:${accent};border-color:${vars['--border']}"></span>
-                  <span>${label}</span>
-                </button>`,
-            )
-            .join('')}
+        <div class="btn-row" role="radiogroup" aria-label="Theme" id="theme-picker">
+          ${(['light', 'dark', 'system'] as const).map(m =>
+            `<button class="btn-sm ${getThemeMode() === m ? 'accent' : ''}" data-theme="${m}" role="radio" aria-checked="${getThemeMode() === m}">${m === 'system' ? 'System' : m === 'light' ? 'Light' : 'Dark'}</button>`
+          ).join('')}
         </div>
       </div>
       <div class="settings-row" style="flex-direction:column;align-items:flex-start;gap:8px">
@@ -3635,14 +3973,16 @@ function renderSettingsView() {
   });
 
   $maybe('theme-picker')?.addEventListener('click', e => {
-    const btn = (e.target as HTMLElement).closest<HTMLButtonElement>('.theme-opt');
+    const btn = (e.target as HTMLElement).closest<HTMLButtonElement>('[data-theme]');
     if (!btn) return;
-    const theme = btn.dataset['theme'];
-    if (theme && theme in THEMES) {
-      localStorage.setItem(THEME_KEY, theme);
-      applyTheme(theme);
-      renderSettingsView();
+    const mode = btn.dataset['theme'] as ThemeMode;
+    if (mode === 'system') {
+      localStorage.removeItem(THEME_KEY);
+    } else {
+      localStorage.setItem(THEME_KEY, mode);
     }
+    applyTheme();
+    renderSettingsView();
   });
 
   $maybe('thumb-bg-picker')?.addEventListener('click', e => {

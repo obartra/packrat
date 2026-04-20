@@ -52,7 +52,11 @@ export async function loadAllData(): Promise<void> {
   ]);
 
   store.containers.clear();
-  cSnap.forEach(d => store.containers.set(d.id, { id: d.id, ...d.data() } as Container));
+  cSnap.forEach(d => {
+    const data = d.data();
+    if (!data['compartments']) data['compartments'] = [];
+    store.containers.set(d.id, { id: d.id, ...data } as Container);
+  });
 
   store.items.clear();
   iSnap.forEach(d => store.items.set(d.id, { id: d.id, ...d.data() } as Item));
@@ -148,11 +152,14 @@ export function setupListeners(): void {
   containerListener = onSnapshot(query(contsCol(), orderBy('createdAt', 'asc')), snap => {
     snap.docChanges().forEach((change: DocumentChange) => {
       if (change.type === 'removed') store.containers.delete(change.doc.id);
-      else
+      else {
+        const data = change.doc.data();
+        if (!data['compartments']) data['compartments'] = [];
         store.containers.set(change.doc.id, {
           id: change.doc.id,
-          ...change.doc.data(),
+          ...data,
         } as Container);
+      }
     });
   });
 
